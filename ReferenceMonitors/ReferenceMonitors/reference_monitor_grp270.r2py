@@ -1,0 +1,93 @@
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  temp1=""
+  temp2=0
+  def __init__(self,filename,create):
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    a=[".","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z"]
+    for i in filename:
+      if i not in a:
+        exitall()
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+
+  def writeat(self,data,offset):
+    self.Afile.lock=createlock()
+    self.Afile.lock.acquire(True)
+    self.Bfile.writeat(data,offset)
+    self.Afile.lock.release()
+
+  def readat(self,bytes,offset):
+    self.Afile.lock=createlock()
+    self.Afile.lock.acquire(True)
+    data_to_read=self.Afile.readat(bytes,offset)
+    self.Afile.lock.release()
+    return data_to_read
+
+  def close(self):
+    temp_var=0
+    self.Bfile.lock=createlock()
+    self.Bfile.lock.acquire(True)
+    temp = self.Bfile.readat(None,0)
+    if temp[0]=='S':
+      if temp[-1]=='E':
+       temp_var=1
+       temp1=temp
+      else:
+       temp_var=0
+    
+    self.Bfile.lock.release() 
+    self.Afile.close()
+    self.Bfile.close()
+    
+    if temp_var == 0:
+      if self.Bfn in listfiles():
+        removefile(self.Bfn)
+    else:
+      if self.Afn in listfiles():
+        removefile(self.Afn)
+        filetemp = openfile(self.Afn, True)
+        filetemp.writeat(temp1,0)
+      removefile(self.Bfn)
+      filetemp1 =openfile(self.Bfn,True)
+      filetemp1.writeat(' ',0)
+      filetemp.close()
+      filetemp1.close()
+      
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

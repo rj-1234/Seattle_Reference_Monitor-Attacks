@@ -1,0 +1,117 @@
+'''
+This security layer creates a new empty file for
+each write operation and allows reading from any
+previous version.
+
+python repy.py restrictions.default encasementlib.r2py extra_credit_dyt221.r2py test_ec.r2py
+'''
+class VersionedFile:
+    def __init__(self, filename, create):
+        self.filename = filename
+        # The name of a version file is [filename].[version number].bak.
+        # Find the highest version number.
+        version_max = -1
+        for v in listfiles():
+            if v.startswith(filename):
+                try:
+                    # Parse the version number into an integer.
+                    version = int(v[len(filename)+1:-4])
+                except ValueError:
+                    # Don't use this version.
+                    continue
+                else:
+                    if version > version_max:
+                        version_max = version
+        # Open all previous versions on the disk.
+        self.version_files = []
+        if version_max >= 0:
+            for i in xrange(version_max + 1):
+                # Open the file.
+                self.version_files.append(openfile(filename + "." + str(i) + ".bak", True))
+        elif not create:
+            raise FileNotFoundError
+    def get_last_version(self):
+        if len(self.version_files):
+            return len(self.version_files) - 1
+        return 0
+    def readat(self, bytes, offset, version):
+        if len(self.version_files) == 0:
+            return ""
+        if version >= len(self.version_files):
+            version = self.get_last_version()
+        return self.version_files[version].readat(bytes, offset)
+    def writeat(self, data, offset):
+        # From the instructions: Writing to any old file creates a new (empty) version of that file.
+        v = self.filename + "." + str(len(self.version_files)) + ".bak"
+        file = self._truncate_file(None, v)
+        self.version_files.append(file)
+        file.writeat(data, offset)
+    def close(self):
+        for f in self.version_files:
+            f.close()
+    def _truncate_file(self, file, filename):
+        while True:
+            # Close the file.
+            if file is not None:
+                try:
+                    file.close()
+                except FileClosedError:
+                    pass
+            file = None
+            # Delete the file.
+            try:
+                removefile(filename)
+            except FileNotFoundError:
+                pass
+            except FileInUseError:
+                continue
+            # Create an empty file.
+            try:
+                file = openfile(filename, True)
+            except FileInUseError:
+                continue
+            # Make sure that the file is empty.
+            if len(file.readat(None, 0)) == 0:
+                return file
+def versionedopenfile(filename, create):
+    return VersionedFile(filename, create)
+
+CHILD_CONTEXT_DEF["versionedopenfile"] = {
+    "type": "objc",
+    "args": (str, bool),
+    "exceptions": Exception,
+    "return": {
+        "obj-type": VersionedFile,
+        "name": "VersionedFile",
+        "writeat": {
+            "type": "func",
+            "args": (str, (int, long)),
+            "exceptions": Exception,
+            "return": (int, type(None)),
+            "target": VersionedFile.writeat
+        },
+        "readat": {
+            "type": "func",
+            "args": ((int, long, type(None)), (int, long), (int, long)),
+            "exceptions": Exception,
+            "return": str,
+            "target": VersionedFile.readat
+        },
+        "get_last_version": {
+            "type": "func",
+            "args": None,
+            "exceptions": None,
+            "return": (int, long),
+            "target": VersionedFile.get_last_version
+        },
+        "close": {
+            "type": "func",
+            "args": None,
+            "exceptions": None,
+            "return": (bool, type(None)),
+            "target": VersionedFile.close
+        }
+    },
+    "target": versionedopenfile
+}
+secure_dispatch_module()

@@ -1,0 +1,31 @@
+#Test for negative value and end of file value of offset in writeat function
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+try:
+ myfile.writeat("sdvv", -1) 
+ #Close the file
+ #myfile.close()
+except:
+ #Close the file
+ #myfile.close()
+ log("Security layer doesn't handle negative value of offset in writeat function")
+try:
+ 
+ myfile.writeat("sdvv", 1000) 
+ #Close the file
+ #myfile.close()
+except:
+ #Close the file
+ #myfile.close()
+ log("Security layer doesn't handle end of file value of offset in writeat function")
+myfile.close()

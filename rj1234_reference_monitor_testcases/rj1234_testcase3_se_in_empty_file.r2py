@@ -1,0 +1,21 @@
+#Test for initializing .a file with SE upon creation of file
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+try:
+ assert('SE' == myfile.readat(None,0))
+ myfile.close()
+
+except:
+ myfile.close()
+ log("Security layer doesn't initialize .a file with SE upon creation of file")
+

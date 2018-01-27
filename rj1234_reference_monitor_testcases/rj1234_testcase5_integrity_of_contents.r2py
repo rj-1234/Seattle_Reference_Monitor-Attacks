@@ -1,0 +1,30 @@
+#Test to check integrity of contents of a file previously written to by user
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+
+#assert('SE' == myfile.readat(None,0))
+myfile.writeat("StestE",0)
+
+#assert('SE' == myfile.readat(None,0))
+myfile.close()
+
+myfile=ABopenfile("testfile.txt",True)
+
+try:
+ assert('StestE' == myfile.readat(None,0))
+ myfile.close()
+
+except:
+ myfile.close()
+ log("Security layer does not maintain the contents of a file that user previously wrote")
+

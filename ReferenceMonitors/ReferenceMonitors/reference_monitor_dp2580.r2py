@@ -1,0 +1,142 @@
+"""
+In this assignment you will create a security layer which keeps a backup copy of a file in case it is written incorrectly. 
+For this assignment, every `correct' file [content] must start with the character 'S' and end with the character 'E' [and written to file.a]
+If any other characters (including lowercase 's', 'e', etc.) are the first or last characters, then the file is considered invalid [and written to file.b]
+When the app calls readat(), all reads must be performed on the valid file. Similarly, when the app calls writeat(), all writes must be performed on the invalid file.
+When close() is called on the file, if a file is not valid, its [content] discarded. 
+IMPLIED DESIGN IMPERATIVE: user never gets invalid file, always valid (or "SE" file if there is no valid)
+"""	
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+# Security layer requires we define class that will be accessed...
+class ABFile():
+  def __init__(self,filename,create):
+	# Indicate if you would like to get detailed output
+	debug = True 
+    # local (per object) reference to the underlying file
+	self.Afn = filename+'.a'
+	self.Bfn = filename+'.b'
+
+    # first scenario: ABFile does not exist, then we create it
+	if create:
+      # first lets check if we have this files already.
+	  
+	  # if yes - lets create backups
+	  if self.Afn in listfiles():
+	    # create backup file
+		self.AfileBackup = openfile(self.Afn + ".bac",True)
+		# open old
+		self.Afile = openfile(self.Afn,False)
+		filecontent = self.Afile.readat(None,0)
+		# copy old to backup
+		self.AfileBackup.writeat(content,0)
+		# close backup & old
+		self.Afile.close()
+		self.AfileBackup.close()
+		# remove old
+		removefile(Afn)
+
+	  if self.Bfn in listfiles():
+	    # create backup file
+		self.BfileBackup = openfile(self.Bfn + ".bac",True)
+		# open old
+		self.Bfile = openfile(self.Bfn,False)
+		filecontent = self.Bfile.readat(None,0)
+		# copy old to backup
+		self.BfileBackup.writeat(content,0)
+		# close backup & old
+		self.Bfile.close()
+		self.BfileBackup.close()
+		# remove old
+		removefile(Bfn)
+
+	  # make the files and add 'SE' to the readat file...
+	  self.Afile = openfile(self.Afn,create)
+	  self.Bfile = openfile(self.Bfn,create)
+	  # A file is created valid
+	  self.Afile.writeat('SE',0)
+	else: # 2nd scenario: user asks us to open an existing ABFile	
+	  self.Afile = openfile(self.Afn,False)
+	  self.Bfile = openfile(self.Bfn,False)
+
+	# now we have an ABFile which has filename.a & filename.b under the hood
+	# but to avoid being fed malicious files lets double check them
+	self.validate() # now we can assume we either loaded correct files or safe defaults
+
+	# And methods we would be "impersonating"
+
+  # Write the requested data to the B file using the sandbox's "orginal" writeat call
+  def writeat(self,data,offset):
+    self.Bfile.writeat(data,offset)
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+	# lets validate files...
+	self.validate() # now a is either valid from b or SE
+	
+	# and close them
+	self.Afile.close()
+	self.Bfile.close()
+
+  def validate(self): # we will call it at close() and at __init__ 
+  # to i) always write correct A and ii) avoid being fed incorrect files
+  # typically we will raise ValueError if not valid and handle situation in code 
+  # but its forbidden, so we just make files right
+
+	# check if a is valid. if no - make it "SE". 
+	filecontent = self.Afile.readat(None,0)
+	if not (filecontent.startswith("S") and filecontent.endswith("E")):
+	  #TODO: Find more elegate way to truncate()
+	  self.Afile.close()
+	  removefile(self.Afn)
+	  self.Afile = openfile(self.Afn,True) 
+	  self.Afile.writeat("SE",0)
+	# otherwise A is ok, let it be
+	# ok, now A is valid one way or another (was right os set right)
+
+	# but what about b? We always write to b file, so lets check if it is valid
+	# if yes - transfer it to a, kos its only way to a get valid value
+	filecontent = self.Bfile.readat(None,0)
+	if (filecontent.startswith("S") and filecontent.endswith("E")): 
+	    # erase A...
+	    self.Afile.close()
+	    removefile(self.Afn)
+	    self.Afile = openfile(self.Afn,True)
+	    # and put B into it 
+	    self.Afile.writeat(filecontent,0)
+	else: # discard malicious content
+	  self.Bfile.close()
+	  removefile(self.Bfn)
+	  self.Bfile = openfile(self.Bfn,True)
+	  self.Bfile.writeat("",0)
+	  
+
+# We dont instantiate classes in repy, we use factories, so lets provide one
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+# This is kind of "swagger file" for the class and its capabilities
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+# and here we expose our open file for the dispatch module...
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+
+# At the end we have to call dispatch, and layer will start
+secure_dispatch_module()

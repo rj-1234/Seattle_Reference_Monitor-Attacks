@@ -1,0 +1,90 @@
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  #valid
+  def __init__(self,filename,create):
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn =filename +'.a'
+    self.Bfn =filename +'.b'
+    self.valid =checkFile(filename)
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+
+
+
+  def checkFile(fileN):
+    good = 1
+    count=0
+    lastChar=' '
+    file_object  = open(fileN, "r")
+    for line in file_object:
+      if (line[0] != 'S' and count==0):
+        good = 0
+      count+=1
+      lastChar = line[-2:-1]
+    if (lastChar!= "E"):
+      good = 0
+    if (good == 1):
+      return True
+
+  def writeat(self,data,offset):
+    
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.valid = checkFile(data)
+    if(self.valid != True):
+      self.lock = createlock()
+      self.lock.acquire(True)
+
+      self.Bfile.writeat(data,offset)
+      
+      self.lock.release()
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    self.valid = checkFile(bytes)
+    if (self.valid):
+      return self.Afile.readat(bytes,offset)
+      
+
+  def close(self):
+
+    if (self.valid == True):
+      self.Bfile = self.Afile
+
+    self.Afile.close()
+    self.Bfile.close()
+
+    removefile(self.Afile)
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

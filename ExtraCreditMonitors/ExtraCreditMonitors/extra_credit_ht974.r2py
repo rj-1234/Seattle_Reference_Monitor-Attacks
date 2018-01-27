@@ -1,0 +1,91 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py
+
+    """
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False
+    # local (per object) reference to the underlying file
+    # find all valid file, their names look like : filename.1, the suffixes are their versions
+    filenames = listfiles()
+    self.valid_filenames = []
+    self.base_name = filename
+    for i in range(1, 1024):
+        if (filename+'.' + str(i)) not in filenames:
+           break;
+        self.valid_filenames.append(filename + '.' + str(i))
+    self.latest_version = i - 1
+    # if the file does not exist before, create at lease valid file just as A/B backup file
+    if self.latest_version == 0:
+       self.latest_version = 1;
+       self.valid_filenames.append(filename + '.' + str(1))
+    self.Bfn = filename+'.b'
+    self.valid_files = []
+    # make the files and add 'SE' to the readat file...
+    if create:
+      for filename in self.valid_filenames:
+          self.valid_files.append(openfile(filename, create))
+      self.Bfile = openfile(self.Bfn,create)
+      if i == 1:
+         self.valid_files[0].writeat('SE',0)
+
+
+  def writeat(self,data,offset):
+
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+
+  def readat(self,bytes,offset, version = -1):
+    # Read from the A file using the sandbox's readat...
+    if version == -1:
+       version = self.latest_version - 1
+    return self.valid_files[version].readat(bytes,offset)
+
+  def close(self):
+    # check whether Bfile is invalid, If yes, overwrite Bfile to Afile; if not, overwrite Afile to Bfile
+    Bcontent = self.Bfile.readat(None, 0)
+    if Bcontent[0] == 'S' and Bcontent[-1] == 'E':
+       new_version_file = openfile(self.base_name + '.' + str(self.latest + 1), True)
+       new_version_file.writeat(Bcontent, 0)
+    else:
+       self.Bfile.writeat(self.valid_files[self.latest_version - 1].readat(None, 0), 0)
+    for file in self.valid_files:
+        file.close()
+    self.Bfile.close()
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

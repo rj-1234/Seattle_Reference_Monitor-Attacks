@@ -1,0 +1,137 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+	#globals
+	mycontext['debug'] = False
+
+	#Underlying Files
+	def __init__(self, filename, create):
+			self.Afn = filename + '.a'
+			self.Bfn = filename + '.b'
+
+			files_in_directory = listfiles()
+			if self.Afn in files_in_directory:
+				self.Afile_exists = True
+			else:
+				self.Afile_exists = False
+
+			if self.Bfn in files_in_directory:
+				self.Bfile_exists = True
+			else:
+				self.Bfile_exists = False
+
+			if not self.Afile_exists and not self.Bfile_exists:
+				self.Afile = openfile(self.Afn, create)
+				self.Afile_exists = True
+				self.Bfile = openfile(self.Bfn, create)
+				self.Bfile_exists = True
+				self.Afile.writeat("SE", 0)
+				self.Afile_valid = True
+				self.Bfile_valid = False
+				self.write_file = self.Bfile
+				self.read_file = self.Afile
+
+			elif self.Afile_exists and not self.Bfile_exists:
+				self.Afile = openfile(self.Afn, create)
+				self.Afile_valid = True
+				self.Bfile = openfile(self.Bfn, True)
+				self.Bfile_valid = False
+				self.Bfile_exists = True
+				self.read_file = self.Afile
+				self.write_file = self.Bfile
+
+			elif self.Bfile_exists and not self.Afile_exists:
+				self.Bfile = openfile(self.Bfn, create)
+				self.Bfile_valid = True
+				self.Afile = openfile(self.Afn, True)
+				self.Afile_exists = True
+				self.read_file = self.Bfile
+				self.write_file = self.Afile
+
+			# If program was interrupted before close in a previous
+			# operation by the attack layer. Or the attack layer doesn't call
+			# close() function at all after making the other file valid too.
+			# If the close() function isn't called both files would exist in the system.
+			# For example, if an assert statement failed and raises an exception in
+			# an attack statement and the attack layer never called close.
+			# Very edge-case: If both A and B files are valid
+			# Defaults to making the A file as valid one
+			# Defaults to making the B file as invalid one
+			# Overwrites the B file to make it blank
+			elif self.Bfile_exists and self.Afile_exists:
+				self.Afile = openfile(self.Afn, create)
+				self.Bfile = openfile(self.Bfn, create)
+				self.Afile_valid = self.check_validity(self.Afile.readat(None, 0))
+				self.Bfile_valid = self.check_validity(self.Bfile.readat(None, 0))
+				if self.Afile_valid and self.Bfile_valid:
+					self.Bfile.writeat('', 0)
+					self.Bfile_valid = False
+					self.read_file = self.Afile
+					self.write_file = self.Bfile
+				elif self.Afile_valid:
+					self.read_file = self.Afile
+					self.write_file = self.Bfile
+				elif self.Bfile_valid:
+					self.read_file = self.Bfile
+					self.write_file = self.Afile
+
+
+	def check_validity(self, data):
+		if data == '':
+			return False
+		elif data[0] == 'S' and data[len(data)-1] == 'E':
+				return True
+		else:
+			return False
+
+	def change_validity(self, valid):
+		if self.write_file == self.Bfile:
+			self.Bfile_valid = valid
+		else:
+			self.Afile_valid = valid
+
+	def writeat(self, data, offset):
+		# Writes data to invalid file
+		self.write_file.writeat(data, offset)
+		self.change_validity(self.check_validity(data))
+
+	def readat(self, bytes, offset):
+		return self.read_file.readat(bytes, offset)
+
+	def close(self):
+		self.Afile.close()
+		self.Bfile.close()
+		if self.Afile_valid and self.Bfile_valid:
+			if self.read_file == self.Afile:
+				removefile(self.Afn)
+			else:
+				removefile(self.Bfn)
+		else:
+			if self.write_file == self.Afile:
+				removefile(self.Afn)
+			else:
+				removefile(self.Bfn)
+
+def ABopenfile(filename, create):
+		return ABFile(filename, create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+								"name":"ABFile",
+								"writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+								"readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+								"close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+					 }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

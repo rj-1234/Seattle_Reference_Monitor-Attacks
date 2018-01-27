@@ -1,0 +1,76 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False
+    mycontext['filesize']=0
+    self.filename=filename
+    
+    self.Afn = filename+'.a' #Back-up file
+    self.Bfn = filename+'.b' #Writable file
+    self.Afile =file
+    self.Bfile=file
+
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('S',0)
+      self.Afile.writeat('E',filesize)
+
+  def findFileSize(self):
+    data=self.file.readat(None,0)
+    self.filesize=len(data)
+
+  def writeat(self,data,offset):
+    filesize = mycontext['filesize']
+    try:
+      intOffset=int(offset)
+      if(offset>=0):
+        #check if attempting to write past end of file
+        if(len(data)+offset>=filesize):
+          return
+        else:
+          self.Bfile.writeat(data,offset)
+      else:
+        return
+    except ValueError:
+      return
+  
+  def readat(self,bytes,offset):
+    return self.Afile.readat(bytes,offset)
+  
+  def openfile_s(filename, create):
+    filesize = mycontext['filesize']
+    ofile=openfile(filename,create)
+    
+    return ABFile(ofile,filename)
+
+  def close(self):
+    self.Afile.close()
+    self.Bfile.close()
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+
+secure_dispatch_module()

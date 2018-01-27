@@ -1,0 +1,153 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+#log("ello World\n")
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # make the files and add 'SE' to the readat file...  
+    #log(listfiles())  
+    #if (test in listfiles()):
+      #log("Ducks")
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+    else:
+      self.Afile = openfile(self.Afn,False)
+      self.Bfile = openfile(self.Bfn,False)
+    
+   # if(!('SE' == myfile.Afile.readat(None,0))):
+      #if(!(self.validityA())):
+                  
+   
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+
+  def validityB(self):
+    #log("Uh \n")
+    s = 0
+    e = 0
+    if('S' == self.Bfile.readat(1,0)):
+      #log("Beginning\n")
+      s = 1
+    i = 0
+    d = 0
+    while(i == 0):
+      if(self.Bfile.readat(None,d) == ''):
+        i = 1
+        d -= 2
+      d += 1
+    if((d >= 1) and ('E' == self.Bfile.readat(1,d))):
+      #log("Well Done!\n")
+      e = 1
+    if( s == 1 and e == 1):
+      #log("Well Done! We're doin it man!!\n")
+      return True
+    else:
+      return False
+
+  def validityA(self):
+    #log("Uh \n")
+    s = 0
+    e = 0
+    if('S' == self.Afile.readat(1,0)):
+      #log("Beginning\n")
+      s = 1
+    i = 0
+    d = 0
+    while(i == 0):
+      if(self.Afile.readat(None,d) == ''):
+        i = 1
+        d -= 2
+      d += 1
+    if((d >= 1) and ('E' == self.Afile.readat(1,d))):
+      #log("Well Done!\n")
+      e = 1
+    if( s == 1 and e == 1):
+      #log("Well Done! We're doin it man!!\n")
+      return True
+    else:
+      return False
+  
+  def close(self):
+    #make sure that A is valid and that it is copied if not get outta heeeyaaaaaaa
+    if(not(self.update())):
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Afn)
+      removefile(self.Bfn)
+    else:
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Bfn)
+
+
+  def update(self):
+    #log("Close\n")
+    #a = self.validityA()
+    i = self.validityB()
+    if(i):
+      #log("Afile bein replaced\n")
+      self.Afile.close()
+      removefile(self.Afn)
+      self.Afile = openfile(self.Afn,True)      
+      self.Afile.writeat(self.Bfile.readat(None,0),0)
+      return True
+    else:
+      return False
+    '''elif(a):
+      #log("Bfile\n")
+      #so this should Be if file A is valid
+      self.Bfile.close()
+      removefile(self.Bfn)
+      self.Bfile = openfile(self.Bfn,True)      
+      self.Bfile.writeat(self.Afile.readat(None,0),0)
+      self.Bfile.close()
+      self.Afile.close()'''
+    '''elif(a):
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Afn)
+      removefile(self.Bfn)'''
+      
+  '''def update(self):
+    #log("Oh I see\n")
+    self.close()
+    self.Afile = openfile(self.Afn,False)
+    self.Bfile = openfile(self.Bfn,False)'''
+    
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    self.update()
+    return self.Afile.readat(bytes,offset)
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

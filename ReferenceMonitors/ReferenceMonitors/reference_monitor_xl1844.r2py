@@ -1,0 +1,187 @@
+"""
+
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+
+
+
+
+Note:
+
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+
+    Also you need to give it an application to run.
+
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py
+
+
+
+    """
+
+TYPE="type"
+
+ARGS="args"
+
+RETURN="return"
+
+EXCP="exceptions"
+
+TARGET="target"
+
+FUNC="func"
+
+OBJC="objc"
+
+
+
+class ABFile():
+    def __init__(self,filename,create):
+        mycontext['debug'] = False
+        self.Afn = filename+'.a'
+        self.Bfn = filename+'.b'
+        if create:
+            if self.Afn in listfiles():
+                removefile(self.Afn)
+            if self.Bfn in listfiles():
+                removefile(self.Bfn)
+
+        mycontext['readLock'] = secure_createlock()
+
+        mycontext['writeLock'] = secure_createlock()
+
+        self.Afile = openfile(self.Afn,create)
+
+        self.Bfile = openfile(self.Bfn,create)
+
+        mycontext['curFileSize']=0
+
+        self.Afile.writeat('SE',0)
+
+
+
+        #when we create the file, to prevent potential threat, we must
+
+        #set several locks and when we finished we must release the lock
+    def writeat(self,data,offset):
+        mycontext['writeLock'].acquire(bool(1))
+    # Write the requested data to the B file using the sandbox's writeat call
+
+    # we should always make sure that A is valid and B is a backup
+
+    # before writing, we should set up a writing lock to prevent threats.
+        self.Bfile.writeat(data,offset)
+
+        mycontext['curFileSize'] = mycontext['curFileSize']+len(data)
+
+        mycontext['writeLock'].release()
+    def readat(self,bytes,offset):
+    #we must judge if this B file is valid
+    #if B file is valid, reading from B is the most priority
+    #if B file is currently not valid, we had to read from A
+    # Read from the A file using the sandbox's readat...
+        return self.Afile.readat(bytes,offset)
+
+    #the reason is simple, if currently B file is valid, then reading B file is the most priority, else
+
+    #we should read A
+    def close(self):
+       # log(mycontext['curFileSize'])
+        if 'S' == self.Bfile.readat(1,0) and 'E'==self.Bfile.readat(1,mycontext['curFileSize']-1):
+            self.Bfile.close()
+            self.Afile.close()
+            removefile(self.Afn)
+        else:
+            self.Afile.close()
+            self.Bfile.close()
+            removefile(self.Bfn)
+
+
+        #in this situation, we must focuse on two conditions whether or not the content in self.Bfile is valid
+
+
+
+# we should always make A the correct one and B the backup one
+
+# so we must adjust it if something is in error
+
+
+
+def ABopenfile(filename, create):
+    return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+
+
+# We must set up the rules that multiple process  are allowed to read but only one process is allowed to write
+
+#that means when an application is writing, other process is blocked to access this invalid file.(back up file)
+
+
+
+#cited source:https://github.com/sanghviharshit/Seattle_RefMon/blob/master/a2p1_security_layer.r2py
+
+    # Locks, this is to make sure only one thread is reading or writing at any time
+
+    # log('creating readLock\n')
+
+    # log('creating writeLock\n')
+
+    #mycontext['writeLock'] = secure_createlock()
+
+
+
+class SecureLock():
+    def __init__(self,lock):
+        self.lock = lock
+
+    def acquire(self, blocking):
+        return self.lock.acquire(blocking)
+    def release(self):
+        return self.lock.release()
+
+
+
+sec_lock_def = {"obj-type":SecureLock,
+
+                  "name":"SecureLock",
+
+                  "acquire":{"type":"func","args":(bool,),"return":bool,"exceptions":None,"target":SecureLock.acquire},
+
+                  "release":{"type":"func","args":None,"return":None,"exceptions":Exception,"target":SecureLock.release},
+
+                 }
+
+
+
+def secure_createlock():
+    l = createlock()
+    return SecureLock(l)
+
+
+
+CHILD_CONTEXT_DEF["createlock"] = {"type":"func","args":None,"exceptions":None,"return":sec_lock_def,"target":secure_createlock}
+
+
+
+
+
+
+
+# Execute the user code
+
+secure_dispatch_module()

@@ -1,0 +1,187 @@
+"""
+
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+python repy.py restrictions.default encasementlib.r2py reference_monitor_afl294.r2py attack.r2py
+
+""" 
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    #Make sure the name only contains letters and numbers
+    mycontext['valid_file_name_characters'] = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z', '1','2','3','4','5','6','7','8','9','.']
+
+
+    if not self.valid_file_name(self.Afn):
+      #self.Afn is not a valid file name
+      raise Exception("")
+
+    if not self.valid_file_name(self.Bfn):
+      #self.Bfn is not a valid file name"
+      raise Exception("")
+
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+    else:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+    
+
+
+
+    if 'file_dict' not in mycontext:
+      mycontext['file_dict'] = {}
+
+    if self.Afn not in mycontext['file_dict']:
+      mycontext['file_dict'][self.Afn] = {}
+      mycontext['file_dict'][self.Afn]['hash'] = -1
+
+
+    if self.Bfn not in mycontext['file_dict']:
+      mycontext['file_dict'][self.Bfn] = {}
+      mycontext['file_dict'][self.Bfn]['hash'] = -1
+
+    mycontext['file_dict'][self.Afn]['closed'] = False
+    mycontext['file_dict'][self.Bfn]['closed'] = False
+
+    #file_A is the valid read backup
+    #file_B is the invalid write new file 
+
+  def valid_file_name(self, file_name):
+    mycontext['valid'] = True
+    for str_char in file_name:
+      if str_char not in mycontext['valid_file_name_characters']:
+        mycontext['valid'] = False
+        break
+
+    return mycontext['valid']
+
+  def writeat(self,data,offset):
+    # Dont block any writeat commands
+    self.Bfile.writeat(data,offset)
+  
+  def readat(self,bytes,offset):
+    #compare hash of current file_a to previous hash. If different, block read
+    file_a_hash = self.unique_hash(self.Afile.readat(None,0))
+
+    read_bool = False
+
+    if mycontext['file_dict'][self.Afn]['hash'] == file_a_hash:
+      read_bool = True
+
+    if mycontext['file_dict'][self.Afn]['hash'] == -1:
+      read_bool = True
+
+    if read_bool:
+      return self.Afile.readat(bytes,offset)
+    else:
+      #Dont allow reads of an potentially invalid/manipulated file
+      return "" #BLOCKED
+  
+
+  def close(self):
+    # Check if file B starts with S and ends with E
+    # Discard invalid file B
+    # If file B is valid, write file B to A and wipe B
+
+    if self.file_is_valid('B'):
+      valid_file_content = self.Bfile.readat(None, 0)
+      self.Afile.close()
+      mycontext['file_dict'][self.Afn]['closed'] = True
+      removefile(self.Afn)
+      self.Afile = openfile(self.Afn, True)
+      self.Afile.writeat(valid_file_content, 0)
+      self.Afile.close()
+
+      self.Bfile.close()
+      removefile(self.Bfn)
+      mycontext['file_dict'][self.Bfn]['closed'] = True
+      self.Bfile = openfile(self.Bfn, True)
+      self.Bfile.close()
+
+      mycontext['file_dict'][self.Afn]['hash'] = self.unique_hash(valid_file_content)
+    else:
+      if mycontext['file_dict'][self.Bfn]['closed'] == False:
+        self.Bfile.close()
+      removefile(self.Bfn)
+      self.Bfile = openfile(self.Bfn, True)
+
+    if mycontext['file_dict'][self.Afn]['closed'] == False:
+      self.Afile.close()
+      mycontext['file_dict'][self.Afn]['closed'] = True
+
+    if mycontext['file_dict'][self.Bfn]['closed'] == False:
+      self.Bfile.close()  
+      mycontext['file_dict'][self.Bfn]['closed'] = True
+  
+
+  def unique_hash(self, long_str):
+    mycontext['hash_count'] = 7
+
+    for x in xrange(0, len(long_str)):
+      str_char = long_str[x]
+      mycontext['hash_count'] += mycontext['hash_count'] * 31 + ord(str_char)
+
+    return mycontext['hash_count']
+    #return md5py_new(long_str).hexdigest()
+
+  def file_is_valid(self, file_str):
+    temp_file = None
+    if file_str == 'A':
+      temp_file = self.Afile
+    if file_str == 'B':
+      temp_file = self.Bfile
+    
+    if temp_file == None:
+      return False
+
+    file_text = temp_file.readat(None, 0)
+
+    if len(file_text) < 2:
+      return False
+
+    first_char = file_text[0]
+    last_char = file_text[-1]
+
+    if first_char == 'S' and last_char == 'E':
+      return True
+    else:
+      return False
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

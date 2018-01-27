@@ -1,0 +1,93 @@
+
+import os
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(myFile, filename , create):
+    
+    mycontext['debug'] = False   
+    
+    myFile.A = filename + '.a'
+    myFile.B = filename + '.b'
+
+    
+    if create == True: #to see if file already exists
+      myFile.Afile = openfile(myFile.A,create)
+      myFile.Bfile = openfile(myFile.B,create)
+      myFile.Afile.writeat('S',0) #writes S at beginning to indicat valid
+      myFile.Afile.writeat('E') #writes at end
+
+
+  def writeat(myFile,data,offset):
+    
+    beginningB = myFile.Bfile.readat(1,0) #check if it's invalid
+    endB = myFile.Bfile.readat(1)
+    if beginningB != 'S' or endb!= 'E':
+        myFile.Bfile.writeat(data,offset)
+  
+  def readat(myFile,bytes,offset):
+    beginningA = myFile.Afile.readat(1,0) #check if it's valid
+    endA = myFile.Bfile.readat(1)
+    if beginningA == 'S' and endA == 'E':
+        return myFile.Afile.readat(bytes,offset)
+
+  def close(myFile):
+    myFile.Afile.close()
+    myFile.Bfile.close()
+    
+    beginningA = myFile.Afile.readat(1,0) #either remove invalid file 
+    endA = myFile.Bfile.readat(1)         #or remove oldest file
+    beginningB = myFile.Bfile.readat(1,0)
+    endB = myFile.Bfile.readat(1)
+
+    if beginningA == 'S' and endA == 'E':
+        validA = True
+    else:
+        validB= False 
+    if beginningB == 'S' and endB == 'E':
+        validB = True
+    else:
+        validB = False
+
+    if validA == False:
+        removefile(myFile.Afile)
+
+    if validB == False:
+        removefile(myFile.Bfile)
+    
+    elif validA == True and validB == True: #check file time
+        timeA = os.path.getctime(myFile.Afile)
+        timeB = os.path.getctime(myFile.Bfile)
+        if timeA > timeB:
+            removefile(myFile.Bfile)
+        else:
+            removefile(myFile.Afile)
+
+    
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

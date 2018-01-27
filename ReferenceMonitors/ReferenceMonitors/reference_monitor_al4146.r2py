@@ -1,0 +1,110 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+    if not create:
+      if self.Afn not in listfiles():
+          self.Afile = openfile(self.Afn,create)
+      else:
+          self.Afile = openfile(self.Afn,false)
+          
+      if self.Bfn not in listfiles():
+          self.Bfile = openfile(self.Bfn,create)
+      else:
+          self.Bfile = openfile(self.Bfn,false)
+
+  def writeat(self,data,offset):
+    
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+    
+  
+  def readat(self,bytes,offset):
+      
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+    
+  def close(self):
+    bValid = 0
+    aValid = 0
+    
+    #Because of errors, commented most code out.
+    #Finds the last char, if B is valid copy to A and signal B is valid
+    #If A is valid then signal
+    #-------------------------------------------------------------------
+    #ALastChar = self.AFile.readat(None,0)[:-1]
+    #BLastChar = self.BFile.readat(None,0)[:-1]
+    #if self.Bfile.readat(1,0) == 'S' and BLastChar == 'E':
+        #bValid = 1
+        #self.Afile = self.Bfile
+    #if self.Afile.readat(1,0) == 'S' and ALastChar == 'E':
+        #aVaild = 1
+        
+    #close the files before removal
+    self.Afile.close()
+    self.Bfile.close()
+
+    #Here checks to see which file is most recent and valid
+    #If both files are valid we just keep A as BFile was copied to A
+    #If only one is valid keep that one
+    #If both invalid, discard both
+    #----------------------------------------------------------------
+    #if aValid == 1 and bValid == 1:
+        #removefile(self.Bfile)
+    #elif aValid == 1:
+        #removefile(self.Bfile)
+    #elif bValid == 1:
+        #removefile(self.Afile)
+    #else:
+        #removefile(self.Afile)
+        #removefile(self.Bfile)
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

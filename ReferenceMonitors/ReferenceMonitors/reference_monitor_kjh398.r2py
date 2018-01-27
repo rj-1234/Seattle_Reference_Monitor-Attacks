@@ -1,0 +1,123 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+#Checks if there is an 'S' at the beginning of the file and an 'E' at the end of the file
+def isValidFile(aFile):
+    readData = aFile.readat(None,0)
+    return readData[0] == 'S' and readData[len(data)-1] == 'E'
+
+class ABFile():
+    def __init__(self,filename,create):
+        # globals
+        mycontext['debug'] = False
+        self.valid = True
+
+        #Invalid if it doesn't end with .txt
+        if(filename.lower().endswith('.txt') == False):
+            self.valid = False
+            
+        #Invalid if there letters are uppercase or non-alphanumerical symbols.
+        filenameParts = filename.split(".")
+        filenameNoExt = filenameParts[0]
+        for letter in filenameNoExt:
+            if ((letter.islower() or (letter.isalnum() == False)) == False):
+                self.valid = False
+
+        #When ABFile is valid, temporary files A and B are created.
+        if self.valid:
+            self.Atest = filename+'.a'
+            self.Btest = filename+'.b'
+            #This case is when file A is already exists. This is the case that it goes to on the program's second iteration. 
+            if self.Atest in listfiles():
+                self.AValid = True
+                self.Afile = openfile(self.Atest,create)
+                self.Bfile = openfile(self.Btest,create)
+                self.Bfile.writeat(self.Afile.readat(None,0),0)
+                self.beenwritten = False
+            #This case is when file A does not exist and file B already exists.
+            elif self.Btest in listfiles():
+                self.AValid = False
+                self.Afile = openfile(self.Atest,create)
+                self.Bfile = openfile(self.Btest,create)
+                self.Afile.writeat(self.Bfile.readat(None,0),0)
+                self.beenwritten = False
+            #This case is when both file A and file B do not exist, the files are made, and file A is set to valid (back-up). This is the case that it goes to on the program's initial iteration.
+            else:
+                self.Afile = openfile(self.Atest,create)
+                self.Afile.writeat('SE',0) 
+                self.Bfile = openfile(self.Btest,create)
+                self.AValid = True
+                self.beenwritten = False
+
+        
+    #Writes in the other file when valid.
+    def writeat(self,data,offset):
+        if self.valid:
+            self.beenwritten = True
+            if self.AValid:
+                self.Bfile.writeat(data,offset)
+            else:
+                self.Afile.writeat(data,offset)
+                
+    #Reads the file when valid.
+    def readat(self,bytes,offset):
+        if self.valid:
+            if self.AValid:
+                self.Afile.readat(bytes,offset)
+            else:
+                self.Bfile.readat(bytes,offset)
+        #Object was not created, so empty file should return 'SE'
+        return 'SE'
+
+    
+    def close(self):
+        if self.valid:
+            if self.beenwritten:
+                if self.AValid:
+                    #Deletes A if B is valid
+                    if isValidFile(self.Bfile):
+                        self.AValid = not self.AValid
+                        self.Afile.close()
+                        self.Bfile.close()
+                        removefile(self.Atest)
+                    #B is not valid, so delete B
+                    else:
+                        self.Afile.close()
+                        self.Bfile.close()
+                        removefile(self.Btest)
+                else:
+                    #Deletes B if A is valid
+                    if isValidFile(self.Afile):
+                        self.AValid = not self.AValid
+                        self.Afile.close()
+                        self.Bfile.close()  
+                        removefile(self.Btest)
+                    #A is not valid, so delete A
+                    else:
+                        self.Afile.close()
+                        self.Bfile.close()
+                        removefile(self.Atest)
+        
+
+def ABopenfile(filename, create):
+    return ABFile(filename,create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

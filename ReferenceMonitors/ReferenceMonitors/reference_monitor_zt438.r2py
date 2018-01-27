@@ -1,0 +1,149 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+
+# file is considered invalid if it does not start with S and end with E
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+    #default valid file is Afile
+    self.valid = 'a'
+
+    # make the files and add 'SE' to the readat file...
+    # check if files really does not exist
+    if create and not self.Afn in listfiles() and not self.Bfn in listfiles():
+      # ABopenfile on new file should create new file SE in filename.a and empty file filename.b
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+      
+    else:
+      # determine which file is the valid file
+      if not self.Afn in listfiles():
+        # Afile is the invalid file -> new empty Afile should be made
+        self.Afile = openfile(self.Afn,True)
+        self.Bfile = openfile(self.Bfn,False)
+        self.valid = 'b'
+      
+      else:
+        # Bfile is the invalid file
+        self.Afile = openfile(self.Afn,False)
+        self.Bfile = openfile(self.Bfn,True)
+        # self.valid stays as default (a)
+
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    # should only write to invalid file
+    
+    if self.valid == 'a':
+      # invalid file is B file
+      # check if offset > content length
+      content_invalid = self.Bfile.readat(None, 0)
+      if offset > len(content_invalid):
+          offset = len(content_invalid)
+      self.Bfile.writeat(data,offset)
+      
+    else:
+      # invalid file is A file
+      # check if offset > content length
+      content_invalid = self.Afile.readat(None, 0)
+      if offset > len(content_invalid):
+          offset = len(content_invalid)
+      self.Afile.writeat(data,offset)
+  
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    # should only read from valid file
+    if self.valid == 'a':
+      # check if offset > content length
+      content_valid = self.Afile.readat(None, 0)
+      if offset > len(content_valid):
+        offset = len(content_valid)
+      return self.Afile.readat(bytes,offset)
+    
+    else:
+      # check if offset > content length
+      content_valid = self.Bfile.readat(None, 0)
+      if offset > len(content_valid):
+        offset = len(content_valid)
+      return self.Bfile.readat(bytes,offset)
+  
+  
+  def close(self):
+    # perform validation check here
+    # take action based on which is the current valid file
+    if self.valid == 'a':
+      # Afile is the current valid file
+      content_invalid = self.Bfile.readat(None, 0)
+      
+      # if both files are valid, discard older one (a file in this case)
+      if (content_invalid[:1] == 'S' and content_invalid[-1:] == 'E'):
+        self.Afile.close()
+        removefile(self.Afn)
+        self.Bfile.close()
+    
+      # if file is not valid, discard it (b file)
+      else:
+        self.Bfile.close()
+        removefile(self.Bfn)
+        self.Afile.close()
+      
+    else:
+      # Bfile is the current valid file
+      content_invalid = self.Afile.readat(None, 0)
+      
+      # if both files are valid, discard older one (b file in this case)
+      if (content_invalid[:1] == 'S' and content_invalid[-1:] == 'E'):
+        self.Bfile.close()
+        removefile(self.Bfn)
+        self.Afile.close()
+    
+      # if file is not valid, discard it (a file)
+      else:
+        self.Afile.close()
+        removefile(self.Afn)
+        self.Bfile.close()
+
+
+def ABopenfile(filename, create):
+  # should open filename.a, filename.b
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

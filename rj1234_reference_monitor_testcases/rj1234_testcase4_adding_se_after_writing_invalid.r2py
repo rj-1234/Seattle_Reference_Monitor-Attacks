@@ -1,0 +1,31 @@
+#Test for writing invalid then adding S and E afterwards to make the file valid
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+
+#assert('SE' == myfile.readat(None,0))
+myfile.writeat("test",0)
+myfile.writeat("S",0)
+myfile.writeat("test123E",1)
+#assert('SE' == myfile.readat(None,0))
+myfile.close()
+
+myfile=ABopenfile("testfile.txt",False)
+
+try:
+ assert('Stest123E' == myfile.readat(None,0))
+ myfile.close()
+
+except:
+ myfile.close()
+ log("Security layer not properly implemented (user can not add S and E  after writing something invalid to make the file valid)")
+

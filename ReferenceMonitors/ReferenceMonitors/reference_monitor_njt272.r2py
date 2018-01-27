@@ -1,0 +1,84 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1504\cocoasubrtf830
+{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww15140\viewh11640\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+"""\
+This security layer inadequately handles A/B storage for files in RepyV2.\
+\
+\
+\
+Note:\
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python\
+    Also you need to give it an application to run.\
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py \
+    \
+    """ \
+TYPE="type"\
+ARGS="args"\
+RETURN="return"\
+EXCP="exceptions"\
+TARGET="target"\
+FUNC="func"\
+OBJC="objc"\
+\
+class ABFile():\
+  def __init__(self,filename,create):\
+    # globals\
+    mycontext['debug'] = False   \
+    # local (per object) reference to the underlying file\
+    self.Afn = filename+'.a'\
+    self.Bfn = filename+'.b'\
+\
+    # make the files and add 'SE' to the readat file...\
+    if create:\
+      self.Afile = openfile(self.Afn,create)\
+      self.Bfile = openfile(self.Bfn,create)\
+      self.Afile.writeat('SE',0)\
+\
+\
+  def writeat(self,data,offset):\
+    \
+    # Write the requested data to the B file using the sandbox's writeat call\
+    self.Bfile.writeat(data,offset)\
+  \
+  def readat(self,bytes,offset):\
+    # Read from the A file using the sandbox's readat...\
+    return self.Afile.readat(bytes,offset)\
+\
+  def close(self):\
+    self.Afile.close()\
+    self.Bfile.close()\
+\
+def ABopenfile(filename, create):\
+  return ABFile(filename,create)\
+\
+	# Friends with technical experience were able to help me download r2py, but without an understanding of python or r2py coming into this class, I can only word what I would do in comments and hope it reflects good faith effort and basic understanding. I\'92m doing what I can as a law student but this assignment is truly and completely beyond my skillset, and I will not be able to make up the knowledge required to perform competently on this assignment in the time allotted.\
+\
+	# We want to prevent someone from overriding both A and B files with an invalid entry. Right now it looks like someone can write into an empty file while still preserving the \'93SE\'94 validity signals at beginning and end. In the current structure you can write anything you want to an open, empty file and it will appear valid.\
+\
+	# I would code a way to change the timeline for when S and E are checked. The main flaw appears to be that files read SE valid before a file is closed after a modification. You could have SE checked multiple times, maybe immediately after writing and immediately after closing, before allowing A to override B or vice versa.\
+\
+	# Another way of making the system more secure is focusing on the deletion part. If the edited file is valid, the backup is supposed to be deleted; if the edited file is invalid, it gets deleted. We could encode a third backup file in some other protected place that serves as a change log of sorts should an attacker know exactly how to rewrite our good files. \
+\
+	# I\'92m struggling to imagine a system that meets all the requirements stipulated in the assignment that a knowledgeable attacker would be unable to manipulate by tricking the system into thinking a change is valid. If you want to enable anyone to write into a file, and the S and E validity function is so obvious, anyone can theoretically override all your data. \
+\
+	# You\'92d need to establish a larger system by using a few different options, maybe A) an authentication mechanism prior to being able to read/write, B) limiting the ability to write data to exclude putting S and E into the data manually, and only have that be available if the system detects certain qualifications are met, or C) backing up in some third location so you can return data to its proper content manually should you manually detect an unwanted deletion.\
+\
+# The code here sets up type checking and variable hiding for you.  You\
+# should not need to change anything below here.\
+sec_file_def = \{"obj-type":ABFile,\
+                "name":"ABFile",\
+                "writeat":\{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat\},\
+                "readat":\{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat\},\
+                "close":\{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close\}\
+           \}\
+\
+CHILD_CONTEXT_DEF["ABopenfile"] = \{TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile\}\
+\
+# Execute the user code\
+secure_dispatch_module()}

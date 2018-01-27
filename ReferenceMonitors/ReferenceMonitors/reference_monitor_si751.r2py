@@ -1,0 +1,231 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.fn = filename
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+    self.Newer = 0
+
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+        try:
+            self.Afile = openfile(self.Afn,create)
+            self.Bfile = openfile(self.Bfn,create)
+            self.Afile.writeat('SE',0)
+            
+        #If file with the name is currently in use, throw an in use error
+        except FileInUseError:
+            raise FileInUseError("Cannot open file \"" + filename + "\" because it is already open!")
+        
+    #If user isn't creating a file, open the existing one, if it exists in the first place
+    else:
+
+        #If the A file exists, then make the B file
+        #With previous contents of A file
+        try:
+            self.Afile = openfile(self.Afn, False)
+            self.Bfile = openfile(self.Bfn, True)
+
+            self.Afile.close()
+            self.Bfile.close()
+
+            self.copyfile(self.Afn, self.Bfn)
+            self.Newer = 2
+
+            self.Afile = openfile(self.Afn, False)
+            self.Bfile = openfile(self.Bfn, False)            
+            
+        except FileNotFoundError:
+            raise FileNotFoundError( "Cannot openfile non-existent file \""
+                                     + filename + "\" without creating it! \n")
+        
+        #If a file is still open, then throw "File In Use" error
+        except FileInUseError:
+            raise FileInUseError("Cannot open file \"" + filename + "\" because it is already open!")
+                
+                
+       #Function to copy data over into a file
+  def copyfile(self, fn_in, fn_out):      
+
+        
+        input = openfile(fn_in, False)
+        output = openfile(fn_out, False)
+  
+        data = input.readat(None, 0)
+        output.writeat(data, 0)           
+
+
+        
+        
+      
+# Write the requested data to the B file using the sandbox's writeat call
+#Should not be blocked since user may want to add S and E to the file's
+#beginning and end
+
+  def writeat(self,data,offset):
+    try:
+        self.Bfile.writeat(data,offset)
+        self.Newer = 2
+    except FileClosedError:
+        raise FileClosedError("File \"" + self.fn + "\" is already closed!")
+
+
+    
+# Read from the A file using the sandbox's readat...  
+  def readat(self,bytes,offset):
+    try:  
+        return self.Afile.readat(bytes,offset)
+    except FileClosedError:
+        raise FileClosedError("File \"" + self.fn + "\" is already closed!")
+
+#Check for file validity
+  def ABCheckValid(self):
+
+    validA = 0
+    validB = 0
+      
+    #Check for validity of file A
+    flen = len(self.Afile.readat(None, 0))
+    if ((self.Afile.readat(1, 0)) == 'S' and (self.Afile.readat(1, flen - 1)) == 'E'):
+        validA = 1
+
+    #Check Validity of file B
+    flen = len(self.Bfile.readat(None, 0))
+    if ((self.Bfile.readat(1, 0)) == 'S' and (self.Bfile.readat(1, flen - 1)) == 'E'):
+        validB = 1
+
+    #Determine overall validity
+    if (validA and validB):
+        return 0
+    elif (not validA and validB):
+        return 1
+    elif (validA and not validB):
+        return 2
+    elif (not validA and not validB):
+        return 3
+
+
+
+        
+
+#During close, check to see if A and B are valid.
+#Should only have ONE valid backup
+  def close(self):
+    
+    #Check for the validity case and act accordingly
+    result = self.ABCheckValid()
+    
+    #Close both files
+
+    self.Afile.close()
+    self.Bfile.close()
+
+    #If both files valid, check for which is newer
+    if result == 0:
+
+        #if B is the newer file, remove and replace A
+        if self.Newer == 2:
+
+            #Replace existing A file
+            #Set newer file to A
+            #Remove B
+        
+            removefile(self.Afn)
+            self.Afile = openfile(self.Afn, True)
+            self.Afile.close()
+            
+            self.copyfile(self.Bfn, self.Afn)
+
+            
+            removefile(self.Bfn)
+        
+            self.Newer = 1
+            
+            
+            
+        #if A is the newer file, or if neither are really newer, remove B, reset newer file status
+        else:
+
+            removefile(self.Bfn)
+            self.Newer = 0
+
+            
+    #if A is invalid, replace it with B's data, remove B
+    elif (result is 1):
+
+        #Remove existing A file
+        #Set newer file to A
+        
+        removefile(self.Afn)
+        self.Afile = openfile(self.Afn, True)
+        self.Afile.close()
+        self.copyfile(self.Bfn, self.Afn)
+    
+        removefile(self.Bfn)
+        
+        self.Newer = 1
+
+       
+    #if B is invalid, remove it, keep A around
+    elif (result is 2):
+
+        
+        #Remove existing B file
+        #Reset newer file status
+        
+        removefile(self.Bfn)
+        self.Newer = 0
+
+        
+        
+    else:
+
+        #if both files invalidated, remove both files, then replace them with new, valid files (?)
+        #Set both files so none in particular are any newer
+        
+        removefile(self.Afn)
+        removefile(self.Bfn)
+        
+        self.Afile = openfile(self.Afn, True)
+        
+        self.Bfile = openfile(self.Bfn, True)
+
+        self.Afile.close()
+        self.Bfile.close()
+
+        self.Newer = 0
+        
+    
+    
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+        
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

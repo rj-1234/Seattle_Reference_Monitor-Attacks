@@ -1,0 +1,109 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    #because you did not specify in instructions I will assume that this ABFile() only handles the creation of the A/B backup files and not creation of an original copy of a file passed into ABopenfile() and that the orignial filename passed in will always have valid information and exists
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+    else: #create passed as false so a/b files should already exist
+      #check to see if these a/b files actually exist and if not create them
+      if(self.Afn not in listfiles() and self.Bfn not in listfiles()):
+        #Neither actually existed in the first place so do same as if passed create = True
+        create = True
+        self.Afile = openfile(self.Afn,create)
+        self.Bfile = openfile(self.Bfn,create)
+        self.Afile.writeat('SE',0)
+      elif(self.Afn in listfiles() and self.Bfn not in listfiles()):
+        #The A backup was valid at last close() so we write its contents to B
+        self.Afile = openfile(self.Afn, False)
+        self.Bfile = openfile(self.Bfn, True)
+        self.Bfile.writeat(self.Afile.readat(None,0),0)
+      else:
+        #The B backup was valid at last close() so we write its contents to A
+        self.Bfile = openfile(self.Bfn)
+        self.Afile = openfile(self.Afn,True)
+        self.Afile.writeat(self.Bfile.readat(None,0),0)
+
+      #Only possible that one currently exists when calling ABopenfile() because one always gets discarded for being invalid at close() or neither exist because false call of create = False
+
+      #Case if both actually already exist can never happen because when closing an ABfile it is set that one will be deleted so only one backup is kept so no need to handle that case
+
+
+
+
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+    aGood = False
+    bGood = False
+    #A always valid because can only be read
+    if("S" == self.Afile.readat(1,0) and "E" == self.Afile.readat(1, len(self.Afile.readat(None,0)) - 1)):
+      aGood = True
+
+    #We always know Afile is valid because it can only be read to so we must check if B is also valid
+    if("S" == self.Bfile.readat(1,0) and "E" == self.Bfile.readat(1, len(self.Bfile.readat(None,0)) - 1)):
+      bGood = True
+    self.Afile.close()
+    self.Bfile.close()
+    #If both are valid then remove A because it will have be the same as the original file b/c it can only be read and keep B because it potentially has valid new information
+    if(aGood == True and bGood == True):
+      removefile(self.Afn)
+    else:
+      #else just remove B because A would never have been touched since it is read only
+      removefile(self.Bfn)
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

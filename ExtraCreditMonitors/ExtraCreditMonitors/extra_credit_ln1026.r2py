@@ -1,0 +1,108 @@
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+
+class SecureFile():
+  def __init__(self,file, fileName):
+    # globals
+    # local (per object) reference to the underlying file
+    self.file = file
+    
+    mycontext['fileName'] = fileName
+    mycontext['debug'] = False    
+    mycontext['nfileName'] = fileName+'new'+'.txt'
+    self.nfn = mycontext['fileName']+'new'+'.txt'
+    
+
+    # Locks, this is to make sure only one thread is reading or writing at any time
+    # log('creating readLock\n')
+    mycontext['readLock'] = secure_createlock()
+    # log('creating writeLock\n')
+    mycontext['writeLock'] = secure_createlock()
+
+   
+  def readat(self,bytes,offset):
+
+      return self.file.readat(bytes,offset)
+  
+  def writeat(self,data,offset):
+    mycontext['readLock'].acquire(bool(1)) # will block if lock is already held
+    mycontext['writeLock'].acquire(bool(1))
+    tem=self.file.readat(1,0)
+    if  tem :
+      self.nfn = mycontext['nfileName']+'new'+'.txt'	
+      self.nfile = openfile(self.nfn,True)
+      self.nfile.writeat(data,offset)
+    else:
+      return self.file.writeat(data,offset)
+
+    mycontext['readLock'].release()    
+    mycontext['writeLock'].release()
+
+
+  def close(self):
+
+      return self.file.close()
+
+
+def secure_openfile(filename, create):
+  f = openfile(filename,create)
+  return SecureFile(f,filename)
+
+def secure_listfiles():
+  return listfiles()
+
+def secure_removefile(filename):
+  return removefile(mycontext['filename'])
+
+
+
+# The code here sets up type checking and variable hiding for you.  You should not need to change anything below here.
+sec_file_def = {"obj-type":SecureFile,
+                "name":"SecureFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":SecureFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":SecureFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":SecureFile.close}
+           }
+
+CHILD_CONTEXT_DEF["openfile"]["target"] = secure_openfile
+CHILD_CONTEXT_DEF["listfiles"]["target"] = secure_listfiles
+CHILD_CONTEXT_DEF["removefile"]["target"] = secure_removefile
+
+
+class SecureLock():
+  def __init__(self,lock):
+    self.lock = lock
+
+  def acquire(self, blocking):
+    return self.lock.acquire(blocking)
+
+  def release(self):
+    return self.lock.release()
+
+sec_lock_def = {"obj-type":SecureLock,
+                  "name":"SecureLock",
+                  "acquire":{"type":"func","args":(bool,),"return":bool,"exceptions":None,"target":SecureLock.acquire},
+                  "release":{"type":"func","args":None,"return":None,"exceptions":Exception,"target":SecureLock.release},
+                 }
+
+def secure_createlock():
+  l = createlock()
+  return SecureLock(l)
+
+CHILD_CONTEXT_DEF["createlock"] = {"type":"func","args":None,"exceptions":None,"return":sec_lock_def,"target":secure_createlock}
+
+rFileLock = secure_createlock()
+wFileLock = secure_createlock()
+
+
+
+# Execute the user code
+secure_dispatch_module()
+
+ 

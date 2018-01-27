@@ -1,0 +1,119 @@
+#Assignment Rules###############################################################
+# For this assignment, every `correct' file must start with the character 'S' and end with the character 'E'.
+#If any other characters (including lowercase 's', 'e', etc.) are the first or last characters, then the file is considered invalid.
+#However, you must permit the application to write information into the file.
+#The application should not be blocked from performing any writeat() operation, because when it chooses it may later write 'S' at the start and 'E' at the end.
+#Note that checking if the file starts with 'S' and ends with 'E' is only performed when close is called.
+#When the app calls readat(), all reads must be performed on the valid file.
+#Similarly, when the app calls writeat(), all writes must be performed on the invalid file.
+# if both files are valid, the older one is discarded.
+################################################################################
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+##Modifications by SAS786
+elapsed = getruntime()
+lock = createlock() #similar to lock = threading.lock()
+#Allow parallel reads but ensure locked thread when writing so that
+#contents are not changed while read is being performed.
+##
+
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+
+      self.Afile = openfile(self.Afn,create)
+
+      self.Bfile = openfile(self.Bfn,create)
+
+      self.Afile.writeat('SE',0)
+
+
+  def writeat(self,data,offset):
+
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    for i in self.Afile.readat(bytes, offset):
+      if i.islower():
+        raise ValueError("Invalid First byte. Can't be lower cased!")
+        for j in self.Afile.readat(bytes, offset):
+          if j.islower():
+            raise ValueError("Invalid Second byte. Can't be lower cased!")
+
+
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+
+    x = self.Bfile.readat(None,0) #read from valid file
+    y = self.Afile.readat(None,0)
+
+
+    if(x.startswith('S') and x.endswith('E')):
+      lock.acquire(True)
+      try:
+        if(y.startswith('S') and y.endswith('E')):
+          self.Afile.writeat(x,0) #write to invalid file
+        else:
+          raise ValueError("Invalid File!")
+          removefile(self.Afn) #if A is invalid
+
+      finally:
+        lock.release()
+        lock.acquire(False)
+
+
+    else:
+      removefile(self.Bfn) # if B is invalid
+
+
+
+    self.Bfile.close()
+
+    self.Afile.close()
+
+    #log (str(elapsed) + "\n")
+    #clear the variables x,y
+    del x
+    del y
+    
+    #log("log: Bfile closed\n")
+    removefile(self.Afn) # If both files are valid discarding the older one (created first)
+
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

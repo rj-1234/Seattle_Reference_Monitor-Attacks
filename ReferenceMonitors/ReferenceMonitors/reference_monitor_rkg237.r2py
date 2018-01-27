@@ -1,0 +1,110 @@
+# 1. Every `correct' file must start with the character 'S' and end with the character 'E'.
+#   If any other characters are the first or last characters, then file is invalid.
+# 2. Permit the application to write information into the file.
+#   The application should not be blocked from performing any writeat() operation,
+# 3. Store two copies of A/B files on disk
+#   One that is the valid backup (which is used for reading)
+#   and the other that is written to.
+# 4. When an app calls ABopenfile(), the A/B files (filename.a and filename.b) should be opened.
+# 5. When the app calls readat(), all reads must be performed on the valid file.
+# 6. When the app calls writeat(), all writes must be performed on the invalid file.
+# 7. If the app uses ABopenfile() to create a file that does not exist
+#   (by setting create=True when calling ABopenfile())
+#   the reference monitor will create a new file 'SE' in filename.a and an empty file called filename.b.
+# 8. When close() is called on the file, if a file is not valid, it is discarded.
+#   if both files are valid, the older one is discarded.
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a' 
+    self.Bfn = filename+'.b'
+    
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+    else:
+      self.Afile = openfile(self.Afn)
+      self.Bfile = openfile(self.Bfn)
+        
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+    
+    if offset ==0:
+        return self.Bfile.writeat('',0)
+
+    if offset <0:
+        raise Exception('RepyArgumentError')
+
+    if type(data) == str:
+        if len(data) <= #data is a valid length:
+            return self.Bfile.writeat(data,offset)
+        elif len(data) > offset-#EOF:
+        #data written exceeds file size or attempts to write past EOF:
+            raise Exception('SeekPastEndofFileError')
+        return self.Bfile.writeat(data,offset)
+    else:
+        raise Exception('RepyArgumentError')
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    for bytes in self.Afile:
+        return self.Afile.readat(bytes,offset)
+    
+    if bytes =None: #bytes = sizelimit, if sizelimit is None, file is read till the end
+        return self.Afile.readat(bytes,offset)
+
+    if offset ==0:
+        return self.Afile.readat(bytes,offset)
+    elif offset <0 or bytes <0:
+        raise Exception('RepyArgumentError')
+    elif #attempt to read past the end of the file:
+        raise Exception('SeekPastEndOfFileError')
+
+  def close(self):
+# when close(), potential outcomes:
+# 1) A file invalid so delete. But keep B file.
+# 2) A file valid so keep. But delete B file.
+# 3) Both A and B files valid. So delete A file.
+
+    if self.Bfile.startswith('S') and self.Bfile.endswith('E'):
+        self.Bfile.close()
+        removefile(self.Afile)    
+    elif self.Afile.startswith('S') and self.Afile.endswith('E'):
+        self.Afile.close()
+        removefile(self.Bfile)
+    else:
+        removefile(self.Afile)
+        removefile(self.Bfile)
+
+def ABopenfile(filename, create):  
+  return ABFile(filename,create)
+    
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

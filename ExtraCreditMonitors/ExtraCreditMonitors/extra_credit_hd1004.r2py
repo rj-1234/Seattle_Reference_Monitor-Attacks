@@ -1,0 +1,106 @@
+
+#Read this first
+#all version of files are numbered by "filename + i"
+#To use this, type in the file name and the ith version of the file to get that version, or only type the filename to create a new version of file.
+#eg. myfile=ABopenfile("testfile.txt003",True)
+
+#opening a file that doesn't exist should be forbidden.
+#filename must ends with a character only(no numbers).
+#the maximum version number is 1000, testfile.txt.a000, testfile.txt.a001, testfile.txt.a002 ... testfile.txt.a999
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+numlist = ["0","1","2","3","4","5","6","7","8","9"]
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    if filename[-1] not in numlist:
+
+      listfile = listfiles()#time saving
+      for i in range(0, 999):#keeps 9 old version
+        self.Afn = filename+'.a' + '{0:03}'.format(i)
+        self.Bfn = filename+'.b' + '{0:03}'.format(i)
+        if self.Afn not in listfiles():
+          break
+      
+
+    else:#requesting to access an old version
+      self.Afn = filename[:-3] + '.a' + filename[-3:]#not necessary step
+      self.Bfn = filename[:-3] + '.b' + filename[-3:]
+
+# changed the create condition so when create is true and there's already a file it doesn't get replaced.
+#    if create:
+    if self.Afn in listfiles():
+      self.Afile = openfile(self.Afn,False)
+    else:
+      self.Afile = openfile(self.Afn,create)
+      self.Afile.writeat('SE',0)
+
+#Bfile is removed every time fileclose, this prevents multiple access to file at the same time.
+    while self.Bfn in listfiles():
+      sleep(1)
+
+    self.Bfile = openfile(self.Bfn,create)
+
+  def writeat(self,data,offset):
+    self.Bfile.writeat(data,offset)
+
+
+
+###############################################################
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+
+    Bfilestring = self.Bfile.readat(None, 0)
+
+    if (len(Bfilestring) > 2 and Bfilestring[0] == 'S' and Bfilestring[-1] == 'E'):
+#copy b to a#########################################################
+      if self.Afile in listfiles():
+        self.Afile.close()
+        removefile(self.Afn)
+        self.Afile = openfile(self.Afn,create)
+
+      self.Afile.writeat(self.Bfile.readat(None,0), 0)
+
+    self.Afile.close()
+    self.Bfile.close()
+    removefile(self.Bfn)
+
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()
+
+

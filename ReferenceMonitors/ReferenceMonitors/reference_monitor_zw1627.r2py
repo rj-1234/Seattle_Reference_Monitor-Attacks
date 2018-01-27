@@ -1,0 +1,185 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py
+
+    """
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False
+    mycontext['file_lock'] = createlock()
+    mycontext['file_lock'].acquire(True)
+
+    self.ABFileInputChecking(filename, create)
+
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+    self.Afile = None
+    self.Bfile = None
+    self.Alen = 0
+    self.Blen = 0
+    self.valid = 0      #0 for A, 1 for B
+
+    # make the files and add 'SE' to the readat file...
+    if not create:
+      if self.Afn not in listfiles() and self.Bfn not in listfiles():
+        raise RepyArgumentError("The file to open does not exist!!\n")
+
+    try:
+      if self.Afn in listfiles() and self.Bfn not in listfiles():
+        self.Afile = openfile(self.Afn, create)
+        self.Bfile = openfile(self.Bfn, True)
+        self.valid = 0
+      elif self.Afn not in listfiles() and self.Bfn in listfiles():
+        self.Afile = openfile(self.Afn, True)
+        self.Bfile = openfile(self.Bfn, create)
+        self.valid = 1
+      elif create and self.Afn not in listfiles() and self.Bfn not in listfiles():
+        self.Afile = openfile(self.Afn, create)
+        self.Bfile = openfile(self.Bfn, create)
+        self.Afile.writeat('SE', 0)
+        self.valid = 0
+      else:
+        raise RepyArgumentError('a file and b file exist at the same time~~\n')
+    except:
+      raise RepyArgumentError('Unable to Open File!\n')
+
+    self.Alen = self.getFileLength(self.Afile)
+    self.Blen = self.getFileLength(self.Bfile)
+
+
+  def writeat(self,data,offset):
+
+    # Write the requested data to the B file using the sandbox's writeat call
+    if ((type(offset) is not long) and (type(offset) is not int) or  (type(data) is not str) or (offset < 0) or not data):
+      raise ValueError('Invalid Input value to write')
+
+    aLock = createlock()
+    aLock.acquire(True)
+    if offset > self.Blen:
+      raise ValueError
+    try:
+      if self.valid == 1:     #0 is invalid, write to A
+        self.Afile.writeat(data, offset)
+        self.Alen = self.getFileLength(self.Afile)
+      elif self.valid == 0:   #1 is invalid, write to B
+        self.Bfile.writeat(data, offset)
+        self.Blen = self.getFileLength(self.Bfile)
+      aLock.release()
+
+    except:
+      raise RepyArgumentError
+
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    if (type(offset) is not long) and (type(offset) is not int) or (offset < 0):
+      raise ValueError
+    if bytes is not None and type(bytes) is not long and type(bytes) is not int:
+      raise ValueError('read bytes type error')
+    if bytes is not None and bytes < 0:
+      raise ValueError
+
+    if self.valid ==0 and offset > self.Alen:
+      raise ValueError
+    elif self.valid == 1 and offset > self.Blen:
+      raise ValueError
+
+    try:
+      if self.valid == 0:
+        return self.Afile.readat(bytes, offset)
+      elif self.valid == 1:
+        return self.Bfile.readat(bytes, offset)
+    except:
+      raise RepyArgumentError
+
+  def close(self):
+    removeA = False
+    removeB = False
+
+    if self.Afile.readat(1, 0) != 'S' and self.Afile.readat(1, self.Alen-1) != 'E':
+      removeA = True
+    if self.Bfile.readat(1, 0) != 'S' and self.Bfile.readat(1, self.Blen-1) != 'E':
+      removeB = True
+
+    self.Afile.close()
+    self.Bfile.close()
+    try:
+      if not removeA and not removeB and self.valid == 0:
+        removefile(self.Afn)
+      elif not removeA and not removeB and self.valid == 1:
+        removefile(self.Bfn)
+      else:
+        if removeA:
+          removefile(self.Afn)
+        if removeB:
+          removefile(self.Bfn)
+    except:
+      raise RepyArgumentError('Fail to remove file!!\n')
+
+    try:
+      mycontext['file_lock'].release()
+    except:
+      raise RepyArgumentError('Cannot Open File Twice!\n')
+
+
+  def getFileLength(self, fileObj):
+    count = 0
+    for x in fileObj.readat(None, 0):
+      count += 1
+    return count
+
+
+  def ABFileInputChecking(self, filename, create):
+    #check input value
+    if (type(filename) is not str) or (type(create) is not bool) or (len(filename) > 120):
+      raise ValueError('Invalid input for ABFile\n')
+
+    if filename[0] == '.' or filename == '':
+      raise RepyArgumentError('File name cannot start with . or be empty!!\n')
+
+    for aChar in filename:
+      if aChar.isupper():
+        raise RepyArgumentError('Invalid file name -- No upper case!!\n')
+      if  not aChar.isalnum():
+        if aChar == '.' or aChar == '-' or aChar == '_':
+          continue
+        else:
+          raise RepyArgumentError('File name must be [a-z0-9.-_]\n')
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

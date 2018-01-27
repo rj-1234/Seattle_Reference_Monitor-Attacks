@@ -1,0 +1,145 @@
+
+
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py
+
+    """
+
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    #"Initializing the AB file \n")
+    mycontext['debug'] = False
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+    self.fn = filename
+    # make the files and add 'SE' to the readat file...
+    if create:
+      #"Creating files " + self.Afn + " and " + self.Bfn + "\n")
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+      self.closed = False
+    else:
+      if(self.initiateFiles() == -1):
+          return
+
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    if(self.closed == True):
+        if(self.initiateFiles() == -1):
+            return
+    #"Writing to file B\n")
+    self.Bfile.writeat(data,offset)
+    self.close()
+    self.closed = True
+
+
+  def readat(self,bytes,offset):
+    #Read from the A file using the sandbox's readat...
+    if(self.closed == True):
+        if(self.initiateFiles() == -1):
+            return
+    #"Reading from file A\n")
+    AFileText = self.Afile.readat(None,0)
+    if(self.checkForSandE(AFileText) == True):
+        return self.Afile.readat(bytes,offset)
+    else:
+        ""
+
+
+  def close(self):
+    if(self.closed == True):
+        return
+    self.validate()
+    self.closed = True
+
+  def validate(self):
+      #"Validating if a and b files Starts with S and ends with E\n")
+      AFileText = self.Afile.readat(None,0)
+      #"Checking for file A\n")
+      isAValid = self.checkForSandE(AFileText)
+      BFileText = self.Bfile.readat(None,0)
+      #"Checking for file B\n")
+      isBValid = self.checkForSandE(BFileText)
+      self.Bfile.close()
+      self.Afile.close()
+      #"Have closed the files\n")
+      if(isAValid == True and isBValid == True):
+          removefile(self.Afn)
+          return
+      if(isBValid == True):
+          removefile(self.Afn)
+          return
+      else:
+          removefile(self.Bfn)
+          return
+
+
+  def checkForSandE(self,fileContents):
+      #"Getting the contents\n")
+      firstChar = fileContents[0]
+      lastChar = fileContents[len(fileContents)-1]
+      if(firstChar == 'S' and lastChar == 'E'):
+          #"The file contents are valid\n")
+          return True
+      else:
+          #"The file contents are invalid\n")
+          return False
+
+  def initiateFiles(self):
+      #"Initiating files\n")
+      listOfFiles = listfiles()
+      fileAExists = self.Afn in listOfFiles
+      fileBExists = self.Bfn in listOfFiles
+      if(fileAExists == False and fileBExists == False):
+          return -1
+      elif(fileAExists == False):
+          self.Afile = openfile(self.Afn,True)
+          self.Bfile = openfile(self.Bfn,False)
+          self.Afile.writeat(self.Bfile.readat(None,0),0)
+      else:
+          self.Afile = openfile(self.Afn,False)
+          self.Bfile = openfile(self.Bfn,True)
+          self.Bfile.writeat(self.Afile.readat(None,0),0)
+      self.closed = False
+
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

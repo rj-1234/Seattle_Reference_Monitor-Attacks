@@ -1,0 +1,154 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = True   
+    # local (per object) reference to the underlying file
+    if len(filename) > 120:
+      raise ValueError("Invalid filename – Longer than 120 characters")
+    for c in filename:
+      d = ord(c)
+      if not ((d is 46) or (48 <= d <= 57) or (65 <= d <= 90) or (97 <= d <= 122)):
+        raise ValueError("Invalid filename – Invalid character "+c)  
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      if(len(self.Afile.readat(None, 0)) is 0):
+        self.Afile.writeat('SE',0)
+
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+    # Test opening A, which should fail.
+    #   If it fails because A is in use, we good.
+    #   If it fails because A doesn't exist, that's terrible!!
+    aExists = True
+    try:
+      afile = openfile(self.Afn, False)
+    except (FileNotFoundError):
+      aExists = False
+    except (FileInUseError):
+      afile = self.Afile
+
+    # Test opening B, which should fail.
+    #   If it fails because B is in use, we extra good.
+    #   If it fails because B doesn't exist, that's really sketchy.
+    bExists = True
+    try:
+      bfile = openfile(self.Bfn, False)
+    except (FileNotFoundError):
+      bExists = False
+    except (FileInUseError):
+      bfile = self.Bfile
+
+    # If A exists, check to make sure it's valid.
+    #   It should always be valid, unless we failed.
+    aValid = aExists
+    if aExists:
+      aData = afile.readat(None, 0)
+      aValid = (aData[0] == 'S') and (aData[len(aData)-1] == 'E')
+
+    # If B exists, check to make sure it's valid.
+    #   If the attacker tries to write to file in another thread AFTER this check, those changes won't be saved.
+    #     This prevents somebody from making a malicious invalid write.
+    #     But also drops *some* tiny portion of valid writes, unfortunately.
+    #     But what kind of writer tries to write after hitting close?? Surely only a mean one!!
+    #       Both a bug and a feature? :)
+    bValid = bExists
+    if bValid:
+      bData = bfile.readat(None, 0)
+      bValid = (bData[0] == 'S') and (bData[len(bData)-1] == 'E')
+
+    # If this happens, we failed to protect A.
+    if not aValid:
+      # If a is invalid, we should close it and remove A.
+      self.Afile.close()
+      if aExists:
+        removefile(self.Afn)
+      # A not existing means that B is irrelevant, and should not exist.
+      self.Bfile.close()
+      if bExists:
+        removefile(self.Bfn)
+      # Now we can return, because our work is done.
+      return
+    
+    # This happens all the time.  No big deal.
+    if not bValid:
+      # Close the files, then discard B.  Keep A obviously.
+      self.Bfile.close()
+      self.Afile.close()
+      if bExists:
+        removefile(self.Bfn)
+      # Now we can must return to avoid executing later code.
+      return
+    
+    # If passes the above checks,
+    #   Afile is replaced with Bfile, Bfile is discarded.
+    if aValid and bValid:
+      aData = bData
+      bData = ""
+      
+      # Close the files.  This is dangerous!!!
+      #   Somebody could conceivably use this opportunity
+      #   To jump in and read from B.
+      self.Afile.close()
+      self.Bfile.close()
+      
+      # Remove the files
+      removefile(self.Afn)
+      removefile(self.Bfn)
+      
+      # Create new file
+      self.Afile = openfile(self.Afn, True)
+      
+      # Write the old B data to the new A file
+      self.Afile.writeat(aData, 0)
+      self.Afile.close()
+
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

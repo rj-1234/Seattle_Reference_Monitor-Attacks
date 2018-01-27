@@ -1,0 +1,94 @@
+'''
+Timothy Wong 
+CS3923 Fall 2017
+HW 2.1
+Reference monitor
+
+Modified copy of "A basic (and inadequate) defense":
+https://github.com/SeattleTestbed/docs/blob/master/EducationalAssignments/ABStoragePartOne.md
+isBValid() and self.close() implemented/modified
+
+Security areas I looked into:
+Deletes fileA if the user writes a valid file, keep fileB
+Deletes fileB if the user writes an invalid file, keep fileA
+fileB is considered invalid even if the last or first character is a "\r, \n, " "...etc
+Repy api does not allow user to delete a file while it is open so we are safe from attacker denying the file to us
+Repy api does not allow user to write to random places in file (seek bounded)
+Repy api does not allow user to create a file with a name that another existing file
+'''
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  # self.Afile is the correct file (readable)
+  # self.Bfile is the file users can write to (writeable)
+  # if B file is written and is checked to be valid, then A will be deleted
+
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+
+  def writeat(self,data,offset):
+    
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def isBValid(self):
+    # read whole file
+    content = self.Bfile.readat(None,0)
+    # check first and last characters
+    return content[0] == 'S' and content[-1:] == 'E'
+
+  def close(self):
+    valid = self.isBValid()
+    self.Afile.close()
+    self.Bfile.close()
+    # file has correct form, delete old file: Afile
+    if valid:
+      removefile(self.Afn)
+    # file is in incorrect form, delete Bfile
+    else:
+      removefile(self.Bfn)
+
+
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

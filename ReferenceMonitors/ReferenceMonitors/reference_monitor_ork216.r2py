@@ -1,0 +1,86 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    # Opening files
+    self.Afile = openfile(self.Afn,create)
+    self.Bfile = openfile(self.Bfn,create)
+    # if create == True:
+    # I write 'SE' on file, else I resume operation as is
+    if create:
+      self.Afile.writeat('SE',0)
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+    # checking the invalid/B file before closing, if it's
+    # valid, then I write the file 
+    self.validifier()
+    self.Afile.close()
+    self.Bfile.close()  
+
+  def validifier(self):
+    # Here, the check happens by checking in the first and last
+    # character of the file B. If 'S' is the first & 'E' is the last
+    # then voila! We got ourselves a newer version of the file.
+    fileB = self.Bfile.readat(None, 0)
+    first = 0
+    last = len(fileB) - 1
+    # if last <=0 then the length of fileB is less than 0
+    # that'd mean that I shouldn't do following check and just close A/Bfile
+    if last > 0:  
+      if fileB[0] =='S' and fileB[last] =='E':
+        # Here, I close the file and reopen with create=True
+        # This way I mimic discarding of fileA(old file)
+        self.Afile.close()
+        self.Afile = openfile(self.Afn, True)
+        self.Afile.writeat(fileB, 0)
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

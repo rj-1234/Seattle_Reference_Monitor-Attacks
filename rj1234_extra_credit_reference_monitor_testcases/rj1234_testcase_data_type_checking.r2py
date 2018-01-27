@@ -1,0 +1,36 @@
+#Test for negative value of offset in writeat function
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+try:
+  
+  myfile.writeat(1234,0)
+  
+  #Close the file
+  myfile.close()
+  
+  
+except:
+  log("Security layer does not perform type checking of Data field in writeat function")
+
+try:
+  
+  myfile.readat("asdfg",0)
+  
+  #Close the file
+  myfile.close()
+  
+  
+except:
+  myfile.close()
+  log("Security layer does not perform type checking of Bytes field in readat function")
+

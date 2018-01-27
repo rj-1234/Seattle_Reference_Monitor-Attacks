@@ -1,0 +1,109 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+Note:
+This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+Also you need to give it an application to run.
+python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+""" 
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+    l = listfiles()
+
+    # Only .a on the disk
+    if self.Afn in l and self.Bfn not in l:
+      self.Afile = openfile(self.Afn,False)
+      # if .a is valid, make a copy of .a and name it as .b
+      str = self.Afile.readat(None,0)
+      if str[0] == 'S' and str[len(str)-1] == 'E':
+        self.Bfile = openfile(self.Bfn,True)
+        self.Bfile.writeat(self.Afile.readat(None,0),0)
+      # if .a is not valid, raise an error
+      else:
+        self.Afile.close()
+        raise FileError("Forbidden action: exsisting .a file on the disk is not valid. ")
+
+    # Only .b on the disk
+    elif self.Bfn in l and self.Afn not in l:
+      self.Bfile = openfile(self.Bfn,False)
+      # if .b is valid, make a copy of .b and name it as .a
+      str = self.Bfile.readat(None,0)
+      if str[0] == 'S' and str[len(str)-1] == 'E':
+        self.Afile = openfile(self.Afn,True)
+        self.Afile.writeat(self.Bfile.readat(None,0),0)
+      # if .b is not valid, raise an error
+      else:
+        self.Bfile.close()
+        raise FileError("Forbidden action: exsisting .b file on the disk is not valid. ")
+
+    # No AB file on the disk
+    elif self.Afn not in l and self.Bfn not in l:
+      if create:
+        self.Afile = openfile(self.Afn,create)
+        self.Bfile = openfile(self.Bfn,create)
+        self.Afile.writeat('SE',0)
+      else:
+        raise FileNotFoundError("No AB file found, try create.")
+
+    # Both .a and .b file are on the disk, raise error
+    elif self.Afn in l and self.Bfn in l:
+      raise FileError("Forbidden action: A and B file both exsist on the disk. Must be something wrong.")
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.Bfile.writeat(data,offset)
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+    str = self.Bfile.readat(None,0)
+    # if .b is valid, drop .a
+    if str[0] == 'S' and str[len(str)-1] == 'E':
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Afn)
+    # if .b is invalid, drop .b
+    else:
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Bfn)
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

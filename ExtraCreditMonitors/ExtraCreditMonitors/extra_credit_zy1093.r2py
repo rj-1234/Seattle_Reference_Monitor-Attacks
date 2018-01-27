@@ -1,0 +1,113 @@
+class VersionFile():
+    def __init__(self, filename, create, version):
+        self.filename = filename
+        mycontext['OPEN_FILES_LOCK'].acquire(True)
+        try:
+            if filename in mycontext['OPEN_FILES']:
+                self.file_lock_map = mycontext['OPEN_FILES'][filename]
+                self.file_lock_map['ref'] += 1
+            else:
+                self.file_lock_map = {'lock': createlock(), 'ref': 1}
+                mycontext['OPEN_FILES'][filename] = self.file_lock_map
+        finally:
+            mycontext['OPEN_FILES_LOCK'].release()
+
+        count_filename = filename + '.count'
+        self.file_lock_map['lock'].acquire(True)
+        try:
+            files = listfiles()
+            exist = count_filename in files
+            count_file = openfile(count_filename, create)
+            try:
+                if exist:
+                    self.read_version = version
+                    self.write_version = int(count_file.readat(None, 0)) + 1
+                else:
+                    self.read_version = 0
+                    self.write_version = 1
+                if str(self.read_version) in self.file_lock_map:
+                    raise FileInUseError('Cannot open file "' + filename + '.' + str(
+                        self.read_version) + '" because it is currently writing!')
+                self.read_filename = filename + '.' + str(self.read_version)
+                self.write_filename = filename + '.' + str(self.write_version)
+                count_file.writeat(str(self.write_version), 0)
+            finally:
+                count_file.close()
+            self.file_lock_map[str(self.write_version)] = True
+        except:
+            self.file_lock_map['ref'] -= 1
+            raise
+        finally:
+            self.file_lock_map['lock'].release()
+
+        try:
+            if exist:
+                self.read_file = openfile(self.read_filename, False)
+            else:
+                if self.read_filename in files:
+                    raise Error("Unknown external change. Count file not exists but init version of file exists.")
+                self.read_file = openfile(self.read_filename, True)
+                self.read_file.writeat('SE', 0)
+            self.write_file = openfile(self.write_filename, True)
+            self.write_filesize = 0
+        except:
+            self.file_lock_map['lock'].acquire(True)
+            try:
+                del self.file_lock_map[str(self.write_version)]
+                self.file_lock_map['ref'] -= 1
+            finally:
+                self.file_lock_map['lock'].release()
+            raise
+
+    def writeat(self, data, offset):
+        # Write the requested data to the B file using the sandbox's writeat call
+        self.write_file.writeat(data, offset)
+        if offset + len(data) > self.write_filesize:
+            self.write_filesize = offset + len(data)
+
+    def readat(self, bytes, offset):
+        # Read from the A file using the sandbox's readat...
+        return self.read_file.readat(bytes, offset)
+
+    def close(self):
+        invalid = self.write_file.readat(1, 0) != 'S' or self.write_file.readat(1, self.write_filesize - 1) != 'E'
+        self.read_file.close()
+        self.write_file.close()
+        if invalid:
+            removefile(self.write_filename)
+        self.file_lock_map['lock'].acquire(True)
+        try:
+            self.file_lock_map['ref'] -= 1
+            del self.file_lock_map[str(self.write_version)]
+            if self.file_lock_map['ref'] == 0:
+                del mycontext['OPEN_FILES'][self.filename]
+        finally:
+            self.file_lock_map['lock'].release()
+
+
+def version_openfile(filename, create, version):
+    return VersionFile(filename, create, version)
+
+
+mycontext['OPEN_FILES_LOCK'] = createlock()
+mycontext['OPEN_FILES'] = {}
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type": VersionFile,
+                "name": "VersionFile",
+                "writeat": {"type": "func", "args": (str, (int, long)), "exceptions": Exception,
+                            "return": (int, type(None)), "target": VersionFile.writeat},
+                "readat": {"type": "func", "args": ((int, long, type(None)), (int, long)), "exceptions": Exception,
+                           "return": str, "target": VersionFile.readat},
+                "close": {"type": "func", "args": None, "exceptions": None, "return": (bool, type(None)),
+                          "target": VersionFile.close}
+                }
+
+CHILD_CONTEXT_DEF["version_openfile"] = {"type": "objc", "args": (str, bool, int),
+                                         "exceptions": Exception,
+                                         "return": sec_file_def,
+                                         "target": version_openfile}
+
+# Execute the user code
+secure_dispatch_module()

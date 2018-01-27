@@ -1,0 +1,103 @@
+"""
+Name: To Hung (Lily) Ng
+NETID: thn248
+*** the program below is modified from the sample security layer program given at https://github.com/SeattleTestbed/docs/blob/master/EducationalAssignments/ABStoragePartOne.md
+
+"""
+
+"""
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # use lock to allow only one process writing at a time (no writing simultaneously)
+    mycontext['Wlock'] = createlock()
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'  # The valid file
+    self.Bfn = filename+'.b'  # The invalid file
+    self.currsize = 0
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+
+  # Count how many characters B file contains
+  def countcharlen(self):
+    content = self.Bfile.readat(None, 0)
+    return len(content)
+
+  def writeat(self,data,offset):
+    # Write the requested data to the B file using the sandbox's writeat call
+    mycontext['Wlock'].acquire(True)
+    self.Bfile.writeat(data,offset)
+    # Account for overwritten characters
+    if offset <= self.currsize:
+      self.currsize -= self.currsize-offset
+    self.currsize += len(data)
+    mycontext['Wlock'].release()
+
+  def filebcut(self):
+    # Do a check to make sure that file B is the expected size (remove excess)
+    # This is to get rid of unexpected writes to bytes of the file.
+    if self.countcharlen() != self.currsize:
+      self.Bfile.writeat(self.Bfile.readat(self.currsize, 0), 0)
+
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+    # remove the invalid file by checking for SE
+    # since we expect to write only to file B, file A is naturally expected to be the older file
+    # so when both files are valid, delete A
+    self.filebcut()
+    if self.Bfile.readat(1, 0) == 'S' and self.Bfile.readat(1, self.currsize-1) == 'E' and self.Afile.readat(None,0) == 'SE':
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Afn)
+    elif self.Bfile.readat(1, 0) == 'S' and self.Bfile.readat(1, self.currsize-1) == 'E':
+      # File B is valid
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Afn)
+    else:
+      # Only File A is valid
+      self.Afile.close()
+      self.Bfile.close()
+      removefile(self.Bfn)
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+if callfunc == "initialize":
+  secure_dispatch_module()

@@ -1,0 +1,256 @@
+"""
+This security layer handles A/B storage for files in RepyV2.
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py reference_monitor_dyt221.r2py test_attack.r2py
+"""
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+    OpenFilenamesLock = createlock()
+    OpenFilenames = set()
+    def __init__(self, filename, create):
+        # Make sure that this file is not already open.
+        self.OpenFilenamesLock.acquire(True)
+        if filename in self.OpenFilenames:
+            self.OpenFilenamesLock.release()
+            raise FileInUseError
+        self.OpenFilenames.add(filename)
+        self.OpenFilenamesLock.release()
+        # Initial values
+        self.closed = False
+        self.filename = filename
+        self.file_valid = None
+        self.file_invalid = None
+        # See whether the A or B file already exists.
+        filename_A = filename + ".a"
+        filename_B = filename + ".b"
+        try:
+            file_A = openfile(filename_A, False)
+        except FileNotFoundError:
+            file_A = None
+        try:
+            file_B = openfile(filename_B, False)
+        except FileNotFoundError:
+            file_B = None
+        # If neither file exists, create blank files.
+        # If both files exist, check which one is valid.
+        # If one file exists, check that it is valid.
+        if file_A is None or self._delete_file_if_invalid(file_A, filename_A):
+            # File A does not exist or is invalid.
+            if file_B is None or self._delete_file_if_invalid(file_B, filename_B):
+                # Neither file exists. Create both files.
+                if create:
+                    self.file_valid = self._truncate_file(None, filename_A)
+                    self.file_valid.writeat("SE", 0)
+                    self.filename_valid = filename_A
+                    self.filename_invalid = filename_B
+                else:
+                    raise FileNotFoundError
+            else:
+                # File B is valid.
+                self.file_valid = file_B
+                self.filename_valid = filename_B
+                self.filename_invalid = filename_A
+        else:
+            # File A is valid.
+            self.file_valid = file_A
+            self.filename_valid = filename_A
+            self.filename_invalid = filename_B
+        # Copy the valid file to the invalid file.
+        self._copy_valid_to_invalid()
+    def writeat(self, data, offset):
+        if self.closed:
+            raise FileClosedError
+        # Write to the invalid file.
+        self.file_invalid.writeat(data, offset)
+    def readat(self, bytes, offset):
+        if self.closed:
+            raise FileClosedError
+        # Read from the valid file.
+        return self.file_valid.readat(bytes, offset)
+    def close(self):
+        if self.closed:
+            raise FileClosedError
+        self.closed = True
+        # Check whether the invalid file is valid.
+        invalid_became_valid = self._file_is_valid(self.file_invalid)
+        # Close the two files.
+        self.file_valid.close()
+        self.file_invalid.close()
+        # If the invalid file was valid, delete the valid file.
+        if invalid_became_valid:
+            removefile(self.filename_valid)
+        else:
+            removefile(self.filename_invalid)
+        # Allow this file to be opened again.
+        self.OpenFilenamesLock.acquire(True)
+        self.OpenFilenames.remove(self.filename)
+        self.OpenFilenamesLock.release()
+    # staticmethod but not really because Repy doesn't have that
+    def _truncate_file(self, file, filename):
+        '''
+            <Purpose>
+                Repy does not seem to have a way to truncate a file.
+                This would introduce a bit of a TOCTTOU problem, but
+                __init__ is designed only to allow the main filename
+                to be opened once. If the attacker tries to open the
+                invalid file directly, the code below waits until it
+                is available. On the other hand, the attacker cannot
+                open the valid file directly when it is open in this
+                code.
+            <Arguments>
+                file:
+                    A file object; it will be closed
+                filename:
+                    The name of the file in the file object
+            <Returns>
+                An empty file object
+        '''
+        while True:
+            # Close the file.
+            if file is not None:
+                try:
+                    file.close()
+                except FileClosedError:
+                    pass
+            file = None
+            # Delete the file.
+            try:
+                removefile(filename)
+            except FileNotFoundError:
+                pass
+            except FileInUseError:
+                continue
+            # Create an empty file.
+            try:
+                file = openfile(filename, True)
+            except FileInUseError:
+                continue
+            # Make sure that the file is empty.
+            if len(file.readat(None, 0)) == 0:
+                return file
+    def _copy_valid_to_invalid(self):
+        '''
+            <Purpose>
+                Copies the valid file over to a new file.
+            <Arguments>
+                None
+            <Returns>
+                None
+        '''
+        self.file_invalid = self._truncate_file(self.file_invalid, self.filename_invalid)
+        # Copy the file contents in 4KB buffers.
+        offset = 0
+        while True:
+            b = self.file_valid.readat(4096, offset)
+            self.file_invalid.writeat(b, offset)
+            if len(b) < 4096:
+                break
+            offset += 4096
+    # The staticmethod decorator is not allowed in Repy... so.
+    def _file_is_valid(self, f):
+        '''
+            <Purpose>
+                Determines whether a file is valid.
+            <Arguments>
+                f:
+                    A file object
+            <Returns>
+                True if the file is valid.
+                False if the file is not valid.
+        '''
+        # Because readat always consumes 4K, to be as efficient as possible,
+        # we will check 4K at a time and not read the whole file into memory
+        # at once.
+        offset = 0
+        # First, check for the S at the beginning.
+        last_read_block = f.readat(4096, offset)
+        if last_read_block[0:1] != "S":
+            return False
+        # Repy doesn't seem to have a way
+        # to determine the size of a file
+        # without reading through it.
+        block_before_that = ""
+        while len(last_read_block) == 4096:
+            offset += 4096
+            block_before_that = last_read_block
+            last_read_block = f.readat(4096, offset)
+        # Check for the E at the end.
+        if last_read_block:
+            return last_read_block[-1] == "E"
+        return block_before_that and block_before_that[-1] == "E"
+    def _delete_file_if_invalid(self, file, filename):
+        '''
+            <Purpose>
+                If a file is invalid, it gets deleted.
+            <Arguments>
+                file:
+                    a file object
+                filename:
+                    the name of the file that is open in the file object
+            <Returns>
+                False if the file exists and is valid.
+                True if the file does not exist or was deleted.
+        '''
+        if self._file_is_valid(file):
+            return False
+        # Delete the file.
+        try:
+            file.close()
+        except FileClosedError:
+            pass
+        try:
+            removefile(filename)
+        except FileNotFoundError:
+            pass
+        return True
+
+def ABopenfile(filename, create):
+    return ABFile(filename, create)
+
+# The code here sets up type checking and
+# variable hiding for you. You should not
+# need to change anything below here.
+CHILD_CONTEXT_DEF["ABopenfile"] = {
+    TYPE: OBJC,
+    ARGS: (str, bool),
+    EXCP: Exception,
+    RETURN: {
+        "obj-type": ABFile,
+        "name": "ABFile",
+        "writeat": {
+            "type": "func",
+            "args": (str, (int, long)),
+            "exceptions": Exception,
+            "return": (int, type(None)),
+            "target": ABFile.writeat
+        },
+        "readat": {
+            "type": "func",
+            "args": ((int, long, type(None)), (int, long)),
+            "exceptions": Exception,
+            "return": str,
+            "target": ABFile.readat
+        },
+        "close": {
+            "type": "func",
+            "args": None,
+            "exceptions": None,
+            "return": (bool, type(None)),
+            "target": ABFile.close
+        }
+    },
+    TARGET: ABopenfile
+}
+
+# Execute the user code
+secure_dispatch_module()

@@ -1,0 +1,112 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+
+    self.file = openfile(filename, create)
+    # local (per object) reference to the underlying file
+    self.afn = filename+'.a'
+    self.bfn = filename+'.b'
+    self.fn = filename
+
+    # make the files and add 'SE' to the readat file...
+    if create:
+      self.afile = openfile(self.afn,create)
+      self.bfile = openfile(self.bfn,create)
+
+    #if afile is empty, filled with 'SE'
+    if self.afile.readat(1,0) != 'S': 
+      self.afile.writeat('SE',0)
+    
+    mycontext['size'] = len(self.file.readat(None,0))
+    mycontext['sizeb'] = 0
+    #record the first byte and the last byte
+    mycontext['startb'] = None
+    mycontext['end'] = None
+    if mycontext['size'] > 1:
+      mycontext['end'] = self.file.readat(1,mycontext['size']-1)
+
+  def writeat(self,data,offset):
+    if ((type(offset) is not int) and (type(offset) is not long)) or (offset < 0) or (type(data) is not str) or (not data):
+      raise ValueError("Invalid Input")
+    if offset < 0:
+      raise RepyArgument("Cannot write to a negative offset")
+
+    # Write the requested data to the B file using the sandbox's writeat call
+    self.bfile.writeat(data,offset)
+    if offset == 0:
+      mycontext['startb'] = data[0:1]
+    if offset + len(data) > mycontext['sizeb']:
+      mycontext['sizeb'] = offset + len(data)
+      if mycontext['size'] <= mycontext['sizeb']:
+        mycontext['end'] = data[-1:]
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    return self.afile.readat(bytes,offset)
+
+  def close(self):
+    #if writing operation is valid, rewrite the origin file
+    if mycontext['startb'] == 'S' and mycontext['end'] == 'E':
+      for x in xrange(0,mycontext['sizeb']):
+        self.file.writeat(self.bfile.readat(1,x),x)
+        self.afile.writeat(self.bfile.readat(1,x),x)
+
+    #if origin file is still empty or invalid, delete it and afile
+    data = self.file.readat(None,0)
+    if len(data) < 2:
+      self.afile.close()
+      self.file.close()
+      secure_removefile(self.fn)
+      secure_removefile(self.afn)
+    else:
+      self.afile.close()
+      self.file.close()
+
+    #delete b file
+    self.bfile.close()
+    secure_removefile(self.bfn)
+
+def secure_removefile(filename):
+  return removefile(filename)
+
+
+def ABopenfile(filename, create):
+  mycontext['filename'] = filename
+  return ABFile(filename,create)
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()
+
+

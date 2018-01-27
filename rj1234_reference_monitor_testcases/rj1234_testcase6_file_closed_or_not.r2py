@@ -1,0 +1,25 @@
+#Test to check if file was closed or not?
+
+# WRITE OPERATION
+# New File Operation
+
+# Clean up of existing file
+if "testfile.txt.a" in listfiles():
+  removefile("testfile.txt.a")
+if "testfile.txt.b" in listfiles():
+  removefile("testfile.txt.b")
+
+# Open File Function Call
+myfile=ABopenfile("testfile.txt",True)  #Create an AB file
+
+myfile.close()
+
+
+
+try:
+ myfile=ABopenfile("testfile.txt",True)
+
+except:
+
+ log("Forgot to close")
+

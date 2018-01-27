@@ -1,0 +1,177 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+
+#Assumption: 
+#A file is always valid -> used for read
+#B file may or may not be valid ->  it is used for write
+#The following code makes sure that our assumptions stand true always
+
+class ABFile():
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    mycontext['fn'] = filename 
+    # Global mutex lock for A file and B file
+    mycontext['a_file_lock'] = createlock()
+    mycontext['b_file_lock'] = createlock()
+    if(filename.islower()):
+      self.Afn = filename+'.a'
+      self.Bfn = filename+'.b'
+
+      #When create = True
+      if create:
+        #If the file is present, open it. else create a new one
+        self.Afile = openfile(self.Afn,create)
+        self.Bfile = openfile(self.Bfn,create)
+
+        #If A has previous valid content, it should not be initialised to SE
+        if(not is_valid_file(self.Afile)):
+          self.Afile.writeat('SE',0)
+
+      #When create = False
+      else:
+      
+        self.Afile = openfile(self.Afn, False)
+      
+        if(self.Bfn in listfiles()):
+          self.Bfile = openfile(self.Bfn, False)
+        else:
+          self.Bfile = self.Afile
+          
+####################################################################################
+  
+  def writeat(self,data,offset):
+    
+    # Write the requested data to the B file using the sandbox's writeat call    
+    if(self.Bfile == self.Afile):
+      self.Bfile = openfile(self.Bfn, True)
+      copy_contents(self.Afile, self.Bfile)
+
+    try:
+      mycontext['b_file_lock'].acquire(True)
+
+      self.Bfile.writeat(data,offset)
+
+    finally:
+      mycontext['b_file_lock'].release()
+####################################################################################  
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    try:
+      mycontext['a_file_lock'].acquire(True)
+      return self.Afile.readat(bytes,offset)
+
+    finally:
+      mycontext['a_file_lock'].release()
+####################################################################################
+ 
+  def close(self):
+
+    try:
+      mycontext['a_file_lock'].acquire(True)
+      mycontext['b_file_lock'].acquire(True)
+
+      #Case 1: If both files are valid, discard old one
+      if((not self.Bfile == self.Afile) and is_valid_file(self.Bfile)):
+        #Copy content from B to A
+        copy_contents(self.Bfile, self.Afile)
+      
+        #Close B file and A file
+        if(not self.Bfile == self.Afile):
+          self.Bfile.close()
+      
+      #case 2: If written file is invalid
+      else:
+        if(not self.Bfile == self.Afile):
+          self.Bfile.close()
+          removefile(self.Bfn)
+
+      self.Afile.close()
+
+    finally:
+      mycontext['a_file_lock'].release()
+      mycontext['b_file_lock'].release()
+####################################################################################
+
+def copy_contents(source,destination):
+  destination.writeat(source.readat(None,0),0)
+
+####################################################################################
+def is_valid_file(file):
+    first_char = file.readat(1,0)
+    if(first_char != 'S'):
+      return False
+
+    last_char = get_last_char(file)
+    if(last_char != 'E'):
+      return False
+    else:
+      return True
+
+####################################################################################
+
+def get_last_char(file):
+    i = 1
+    last_char = ''
+    last_index = i
+
+    #Incrementing the offset by power of 2
+    while(True):
+      try:
+        last_char = file.readat(1,i)
+        last_index = i
+        i = i * 2
+      except SeekPastEndOfFileError:
+        break
+  
+
+    #Linear search
+    j = last_index
+    while(j < i):
+      try:
+        next_char = file.readat(1,j)
+        j = j + 1
+      except SeekPastEndOfFileError:
+        last_char = file.readat(1, j-2)
+        break
+
+    return last_char
+####################################################################################
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+####################################################################################
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

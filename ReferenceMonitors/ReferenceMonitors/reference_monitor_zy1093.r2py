@@ -1,0 +1,89 @@
+class ABFile():
+    def __init__(self, filename, create):
+        self.filename = filename
+        Afn = filename + '.a'
+        Bfn = filename + '.b'
+        mycontext['OPEN_FILES_LOCK'].acquire(True)
+        try:
+            if filename in mycontext['OPEN_FILES']:
+                raise FileInUseError('Cannot open file "' + filename + '" because it is already open!')
+            mycontext['OPEN_FILES'].add(self.filename)
+        finally:
+            mycontext['OPEN_FILES_LOCK'].release()
+
+        try:
+            files = listfiles()
+            AExist = Afn in files
+            if Bfn in files:
+                # Assume .a and .b will never exist at the same time.
+                if AExist:
+                    raise Error(".a file and .b file exist at the same time")
+                self.readFileName = Bfn
+                self.writeFileName = Afn
+                self.read_file = openfile(self.readFileName, False)
+                self.write_file = openfile(self.writeFileName, True)
+            else:
+                self.readFileName = Afn
+                self.writeFileName = Bfn
+                self.read_file = openfile(self.readFileName, create)
+                self.write_file = openfile(self.writeFileName, True)
+                if not AExist:
+                    self.read_file.writeat("SE", 0)
+            self.write_filesize = 0
+        except:
+            mycontext['OPEN_FILES_LOCK'].acquire(True)
+            try:
+                mycontext['OPEN_FILES'].remove(self.filename)
+            finally:
+                mycontext['OPEN_FILES_LOCK'].release()
+            raise
+
+    def writeat(self, data, offset):
+        # Write the requested data to the B file using the sandbox's writeat call
+        self.write_file.writeat(data, offset)
+        if offset + len(data) > self.write_filesize:
+            self.write_filesize = offset + len(data)
+
+    def readat(self, bytes, offset):
+        # Read from the A file using the sandbox's readat...
+        return self.read_file.readat(bytes, offset)
+
+    def close(self):
+        invalid = self.write_file.readat(1, 0) != 'S' or self.write_file.readat(1, self.write_filesize - 1) != 'E'
+        self.read_file.close()
+        self.write_file.close()
+        if invalid:
+            removefile(self.writeFileName)
+        else:
+            removefile(self.readFileName)
+        mycontext['OPEN_FILES_LOCK'].acquire(True)
+        try:
+            mycontext['OPEN_FILES'].remove(self.filename)
+        finally:
+            mycontext['OPEN_FILES_LOCK'].release()
+
+
+def ABopenfile(filename, create):
+    return ABFile(filename, create)
+
+
+mycontext['OPEN_FILES_LOCK'] = createlock()
+mycontext['OPEN_FILES'] = set([])
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type": ABFile,
+                "name": "ABFile",
+                "writeat": {"type": "func", "args": (str, (int, long)), "exceptions": Exception,
+                            "return": (int, type(None)), "target": ABFile.writeat},
+                "readat": {"type": "func", "args": ((int, long, type(None)), (int, long)), "exceptions": Exception,
+                           "return": str, "target": ABFile.readat},
+                "close": {"type": "func", "args": None, "exceptions": None, "return": (bool, type(None)),
+                          "target": ABFile.close}
+                }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {"type": "objc", "args": (str, bool), "exceptions": Exception, "return": sec_file_def,
+                                   "target": ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()

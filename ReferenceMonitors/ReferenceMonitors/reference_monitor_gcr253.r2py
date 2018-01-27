@@ -1,0 +1,95 @@
+"""
+This security layer inadequately handles A/B storage for files in RepyV2.
+
+
+
+Note:
+    This security layer uses encasementlib.r2py, restrictions.default, repy.py and Python
+    Also you need to give it an application to run.
+    python repy.py restrictions.default encasementlib.r2py [security_layer].r2py [attack_program].r2py 
+    
+    """ 
+TYPE="type"
+ARGS="args"
+RETURN="return"
+EXCP="exceptions"
+TARGET="target"
+FUNC="func"
+OBJC="objc"
+
+class ABFile():
+  #Creating lock so that in multithreading system this wont fail
+  lock1=createlock()
+  
+  def __init__(self,filename,create):
+    # globals
+    mycontext['debug'] = False   
+    # local (per object) reference to the underlying file
+    self.Afn = filename+'.a'
+    self.Bfn = filename+'.b'
+
+
+    # make the files and add 'SE' to the readat file...
+    # If new files needs to be created i e if A file is not already exist then create file A and file B and write "SE" into file A
+    if self.Afn not in listfiles():
+      self.Afile = openfile(self.Afn,create)
+      self.Bfile = openfile(self.Bfn,create)
+      self.Afile.writeat('SE',0)
+     # If files already exist then Valid file will be file A so we will open it and we will create File B and make a copy of A into B
+    else:
+      self.Afile = openfile(self.Afn, False)
+      self.Bfile = openfile(self.Bfn, True)
+      content_A = self.Afile.readat(None, 0)
+      #acquiring lock so that noone else can write onto B at the same time
+      ABFile.lock1.acquire(True)
+      self.Bfile.writeat(content_A, 0)
+      ABFile.lock1.release()
+
+  def writeat(self,data,offset):
+    
+    # Write the requested data to the B file using the sandbox's writeat call
+    # Write into B which may or may not be Valid
+      ABFile.lock1.acquire(True)
+      self.Bfile.writeat(data,offset)
+      ABFile.lock1.release()
+  
+  def readat(self,bytes,offset):
+    # Read from the A file using the sandbox's readat...
+    # Read From A as it will always be valid
+    return self.Afile.readat(bytes,offset)
+
+  def close(self):
+
+    # Before closing check the content of B that is new file for validation
+    content_B = self.Bfile.readat(None, 0)
+    if content_B  != "":
+      if content_B [0] == "S" and content_B [-1] == "E":
+        # if new content of new file is valid copy the content of new file into old valid file that is file A
+        ABFile.lock1.acquire(True)
+        self.Afile.writeat(content_B, 0)
+        ABFile.lock1.release()
+    self.Afile.close()
+    self.Bfile.close()
+    #remove file B as we have taken recent valid backup in file A
+    removefile(self.Bfn)
+
+
+def ABopenfile(filename, create):
+  return ABFile(filename,create)
+
+
+
+
+# The code here sets up type checking and variable hiding for you.  You
+# should not need to change anything below here.
+sec_file_def = {"obj-type":ABFile,
+                "name":"ABFile",
+                "writeat":{"type":"func","args":(str,(int,long)),"exceptions":Exception,"return":(int,type(None)),"target":ABFile.writeat},
+                "readat":{"type":"func","args":((int,long,type(None)),(int,long)),"exceptions":Exception,"return":str,"target":ABFile.readat},
+                "close":{"type":"func","args":None,"exceptions":None,"return":(bool,type(None)),"target":ABFile.close}
+           }
+
+CHILD_CONTEXT_DEF["ABopenfile"] = {TYPE:OBJC,ARGS:(str,bool),EXCP:Exception,RETURN:sec_file_def,TARGET:ABopenfile}
+
+# Execute the user code
+secure_dispatch_module()
